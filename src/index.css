@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", sans-serif;
+
+  /* Nalama Tree Brand Palette (Extracted from Tree Logo) */
+  --color-tree-50: #edf7f1;
+  --color-tree-100: #daf0e3;
+  --color-tree-200: #b8e2cb;
+  --color-tree-300: #88ceaa;
+  --color-tree-400: #4fb27f;
+  --color-tree-500: #2c975f;
+  --color-tree-600: #207a4a;
+  --color-tree-700: #1a633d;
+  --color-tree-800: #164f31;
+  --color-tree-900: #114028;
+  --color-tree-950: #092416;
+
+  /* Family Canopy Sky Blue (From Tree Logo figures and upper canopy) */
+  --color-canopy-50: #edf6fb;
+  --color-canopy-100: #d6ecf8;
+  --color-canopy-200: #b2dbf2;
+  --color-canopy-300: #7ebfe8;
+  --color-canopy-400: #489fdb;
+  --color-canopy-500: #358ec2;
+  --color-canopy-600: #2674a5;
+  --color-canopy-700: #1f5c83;
+  --color-canopy-800: #1b4d6d;
+  --color-canopy-900: #1b415a;
+
+  /* Natural Teal mapping to harmonious Tree Emerald */
+  --color-teal-50: #edf7f1;
+  --color-teal-100: #daf0e3;
+  --color-teal-200: #b8e2cb;
+  --color-teal-300: #88ceaa;
+  --color-teal-400: #4fb27f;
+  --color-teal-500: #2c975f;
+  --color-teal-600: #207a4a;
+  --color-teal-700: #1a633d;
+  --color-teal-800: #164f31;
+  --color-teal-900: #114028;
+  --color-teal-950: #092416;
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+body {
+  @apply antialiased text-stone-900 bg-[#F8FAF8];
+}

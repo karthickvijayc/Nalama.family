@@ -1,0 +1,10 @@
+{
+  "name": "nalama.family",
+  "description": "Personal Health and Fitness Assistant that uses your google drive data (assuming it contains your medical info, activity info and other relevant info) to provide personalized wellness recommendations and track your long-term health goals.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
