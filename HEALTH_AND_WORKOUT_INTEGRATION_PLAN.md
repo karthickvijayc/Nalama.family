@@ -190,22 +190,24 @@ export interface CanonicalWorkoutSet {
 
 ## 4. Google Drive Folder & File Layout
 
-All imported files reside inside a dedicated `/nalama.family/imports/` subfolder in the user's Google Drive:
+All imported files reside inside a dedicated `/nalama.family/imports/` subfolder in the user's Google Drive. The architecture supports a rolling 180-day active retention window, with older records partitioned by year directly within each category folder:
 
 ```
 Google Drive Root
 └── /nalama.family/
-    ├── context_memory.json                 (Verified facts, medical conditions, targets)
-    ├── logs_2026_09.json                   (Monthly partition for active app logs)
+    ├── context_memory.json                 (Verified facts, medical conditions, targets, file checksum cache)
+    ├── logs_YYYY_MM.json                   (Monthly partitions for active app logs)
     ├── /family_share/
     │   └── care_digest.json                (Caregiver timeline updates)
-    └── /imports/                           <-- NEW AUTOMATION & INTEGRATION DIRECTORY
+    └── /imports/                           <-- AUTOMATION & NALAMA COMPANION IMPORT DIRECTORY
         ├── /health_data/
-        │   ├── biometrics_daily.json       (Canonical Health target file)
-        │   └── archive/                    (Processed raw xlsx / csv / json)
+        │   ├── biometrics_daily.csv        (Active 180-day Health Connect / Biometrics CSV)
+        │   ├── biometrics_daily_2025.csv   (Archived yearly partitions > 180 days)
+        │   └── biometrics_daily.json       (Optional Canonical JSON export)
         └── /gym_workouts/
-            ├── hevy_workouts.json          (Canonical Gym workout target file)
-            └── archive/                    (Processed raw workout exports)
+            ├── hevy_workouts.csv           (Active 180-day Hevy Workout sessions & sets CSV)
+            ├── hevy_workouts_2025.csv      (Archived yearly partitions > 180 days)
+            └── hevy_workouts.json          (Optional Canonical JSON export)
 ```
 
 ---
@@ -215,17 +217,27 @@ Google Drive Root
 ### 5.1 Reconciliation Lifecycle
 
 ```
-[Import Trigger (File Drop or Drive Sync)]
+[Import Trigger (App Launch or Manual Sync)]
                  │
                  ▼
-[File Detection & Signature Parser]
-   ├─ If .xlsx / .csv -> Parse into Memory via Sheet Parser
-   └─ If Canonical JSON -> Direct Schema Validation
+[File Detection & Signature Caching]
+   ├─ Fetch Google Drive file listing with pagination (`nextPageToken`) & `md5Checksum`
+   ├─ Compare `md5Checksum` against cached hashes in `context_memory.json`
+   └─ Skip unchanged files (instantly resolves in <200ms on subsequent launches)
                  │
                  ▼
-[De-duplication Engine]
-   • Compare workoutId / date against existing entries in `logs_YYYY_MM.json`
-   • Avoid duplicate calorie/active minute entries
+[Multi-Format Signature Parser]
+   ├─ If .xlsx / .xls -> Parse into Memory via SheetJS buffer parser
+   ├─ If .csv -> Supports snake_case Nalama Companion format and legacy template headers
+   └─ If .json -> Direct Schema Validation
+                 │
+                 ▼
+[Intra-Day In-Place Upsert Engine]
+   • If existing log found (e.g. `import-activity-YYYY-MM-DD`):
+       - Compares metrics (steps, active calories, sleep duration)
+       - Updates in-place if metrics changed throughout the day
+   • If new workout or date:
+       - Appends to partition
                  │
                  ▼
 [Partition Update (`logs_YYYY_MM.json`)]

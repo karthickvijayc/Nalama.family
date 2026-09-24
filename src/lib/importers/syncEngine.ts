@@ -32,6 +32,7 @@ export type SyncStatusCallback = (event: {
 export interface SyncExecutionResult {
   success: boolean;
   totalNewLogsAdded: number;
+  totalLogsUpdated?: number;
   filesProcessed: number;
   message: string;
   errors?: string[];
@@ -43,7 +44,8 @@ export interface SyncExecutionResult {
 export async function executeExternalDataSync(
   driveState: DriveState,
   userProfile?: UserProfile | null,
-  onProgress?: SyncStatusCallback
+  onProgress?: SyncStatusCallback,
+  forceSync: boolean = false
 ): Promise<SyncExecutionResult> {
   const { token, mainFolderId } = driveState;
   const errors: string[] = [];
@@ -65,7 +67,7 @@ export async function executeExternalDataSync(
 
     const totalFiles = healthFiles.length + workoutFiles.length;
     if (totalFiles === 0) {
-      const summaryMsg = 'No new import files found in /nalama.family/imports/';
+      const summaryMsg = 'No import files found in /nalama.family/imports/';
       onProgress?.({
         status: 'idle',
         message: summaryMsg
@@ -73,25 +75,51 @@ export async function executeExternalDataSync(
       return {
         success: true,
         totalNewLogsAdded: 0,
+        totalLogsUpdated: 0,
         filesProcessed: 0,
+        message: summaryMsg
+      };
+    }
+
+    const fileHashes: Record<string, string> = { ...(userProfile?.lastImportFileHashes || {}) };
+    const allFiles = [
+      ...healthFiles.map(f => ({ ...f, folderType: 'health' as const })),
+      ...workoutFiles.map(f => ({ ...f, folderType: 'workout' as const }))
+    ];
+
+    // Check which files have changed since the last successful sync
+    const filesToProcess = forceSync ? allFiles : allFiles.filter(f => {
+      const currentSig = f.md5Checksum || f.modifiedTime;
+      const cachedSig = fileHashes[f.id];
+      return !cachedSig || cachedSig !== currentSig;
+    });
+
+    if (filesToProcess.length === 0) {
+      const summaryMsg = `All ${totalFiles} health & workout file${totalFiles > 1 ? 's are' : ' is'} up to date.`;
+      onProgress?.({
+        status: 'idle',
+        message: summaryMsg
+      });
+      return {
+        success: true,
+        totalNewLogsAdded: 0,
+        totalLogsUpdated: 0,
+        filesProcessed: totalFiles,
         message: summaryMsg
       };
     }
 
     onProgress?.({
       status: 'processing',
-      message: `Processing ${totalFiles} health & workout file${totalFiles > 1 ? 's' : ''}...`,
-      details: { healthFilesCount: healthFiles.length, workoutFilesCount: workoutFiles.length }
+      message: `Processing ${filesToProcess.length} health & workout file${filesToProcess.length > 1 ? 's' : ''}...`,
+      details: { totalFiles, filesToProcessCount: filesToProcess.length }
     });
 
-    // 3. Read and parse all files
+    // 3. Read and parse changed files
     const parsedResults: ParseResult[] = [];
-    const allFilesToProcess = [
-      ...healthFiles.map(f => ({ ...f, folderType: 'health' })),
-      ...workoutFiles.map(f => ({ ...f, folderType: 'workout' }))
-    ];
+    const successfullyParsedFileIds: { id: string; sig: string }[] = [];
 
-    for (const file of allFilesToProcess) {
+    for (const file of filesToProcess) {
       try {
         const lower = file.name.toLowerCase();
         let res: ParseResult;
@@ -108,6 +136,8 @@ export async function executeExternalDataSync(
 
         if (res.convertedLogs.length > 0) {
           parsedResults.push(res);
+          const sig = file.md5Checksum || file.modifiedTime || new Date().toISOString();
+          successfullyParsedFileIds.push({ id: file.id, sig });
         } else if (res.error) {
           errors.push(`File ${file.name}: ${res.error}`);
         }
@@ -119,7 +149,7 @@ export async function executeExternalDataSync(
 
     const allNewLogs = parsedResults.flatMap(r => r.convertedLogs);
     if (allNewLogs.length === 0) {
-      const summaryMsg = 'No valid health or workout entries detected in import files.';
+      const summaryMsg = 'No new valid health or workout entries detected in import files.';
       onProgress?.({
         status: 'idle',
         message: summaryMsg
@@ -127,7 +157,8 @@ export async function executeExternalDataSync(
       return {
         success: true,
         totalNewLogsAdded: 0,
-        filesProcessed: totalFiles,
+        totalLogsUpdated: 0,
+        filesProcessed: filesToProcess.length,
         message: summaryMsg,
         errors: errors.length > 0 ? errors : undefined
       };
@@ -153,8 +184,9 @@ export async function executeExternalDataSync(
     }
 
     let totalSavedLogs = 0;
+    let totalUpdatedLogs = 0;
 
-    // 5. Deduplicate and save to each monthly partition
+    // 5. In-Place Upsert and Deduplicate against each monthly partition
     for (const [monthKey, monthLogs] of logsByMonth.entries()) {
       const [yearStr, monthStr] = monthKey.split('-');
       const partDate = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 15);
@@ -166,47 +198,90 @@ export async function executeExternalDataSync(
         logs: []
       };
 
-      const existingLogs = Array.isArray(existingFileContent.logs) ? existingFileContent.logs : [];
-      const existingIds = new Set(existingLogs.map(l => l.id));
-      const existingKeys = new Set(existingLogs.map(l => `${l.displayDate}_${l.category}_${l.headline || ''}`));
+      const existingLogs: HealthLogEntry[] = Array.isArray(existingFileContent.logs) ? [...existingFileContent.logs] : [];
+      const logMapById = new Map<string, number>();
+      const logMapByKey = new Map<string, number>();
 
-      const distinctNewLogs: HealthLogEntry[] = [];
-      for (const log of monthLogs) {
-        const compositeKey = `${log.displayDate}_${log.category}_${log.headline || ''}`;
-        if (!existingIds.has(log.id) && !existingKeys.has(compositeKey)) {
-          distinctNewLogs.push(log);
-          existingIds.add(log.id);
-          existingKeys.add(compositeKey);
+      existingLogs.forEach((l, index) => {
+        logMapById.set(l.id, index);
+        logMapByKey.set(`${l.displayDate}_${l.category}_${l.headline || ''}`, index);
+      });
+
+      let partitionModified = false;
+
+      for (const newLog of monthLogs) {
+        const compositeKey = `${newLog.displayDate}_${newLog.category}_${newLog.headline || ''}`;
+        const existingIndex = logMapById.has(newLog.id) 
+          ? logMapById.get(newLog.id)! 
+          : logMapByKey.get(compositeKey);
+
+        if (existingIndex !== undefined) {
+          // Existing log found: check for updates (e.g. intra-day step increases or updated workout sets)
+          const current = existingLogs[existingIndex];
+          const hasChanged = 
+            current.transcript !== newLog.transcript ||
+            current.caloriesBurned !== newLog.caloriesBurned ||
+            current.activeMinutes !== newLog.activeMinutes ||
+            current.headline !== newLog.headline;
+
+          if (hasChanged) {
+            existingLogs[existingIndex] = {
+              ...current,
+              ...newLog,
+              id: current.id // preserve ID
+            };
+            totalUpdatedLogs++;
+            partitionModified = true;
+          }
+        } else {
+          // New distinct log entry
+          existingLogs.push(newLog);
+          const newIdx = existingLogs.length - 1;
+          logMapById.set(newLog.id, newIdx);
+          logMapByKey.set(compositeKey, newIdx);
+          totalSavedLogs++;
+          partitionModified = true;
         }
       }
 
-      if (distinctNewLogs.length > 0) {
-        const mergedLogs = [...existingLogs, ...distinctNewLogs].sort((a, b) => {
+      if (partitionModified) {
+        existingLogs.sort((a, b) => {
           return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
         });
 
         const updatedFileContent: HealthLogFileContent = {
           ...existingFileContent,
-          logs: mergedLogs
+          logs: existingLogs
         };
 
         await writeJsonFile(token, fileName, updatedFileContent, mainFolderId, logFileId);
-        totalSavedLogs += distinctNewLogs.length;
       }
     }
 
-    // 6. Update userProfile sync timestamp
+    // 6. Record file hashes for successful cache checkpoints
+    successfullyParsedFileIds.forEach(item => {
+      fileHashes[item.id] = item.sig;
+    });
+
     const nowIso = new Date().toISOString();
-    const finalSummary = totalSavedLogs > 0
-      ? `Successfully synced ${totalSavedLogs} new health & workout log${totalSavedLogs > 1 ? 's' : ''} from ${totalFiles} file${totalFiles > 1 ? 's' : ''}.`
-      : `Sync complete. All ${allNewLogs.length} items were already up to date.`;
+    let finalSummary: string;
+    if (totalSavedLogs > 0 && totalUpdatedLogs > 0) {
+      finalSummary = `Synced ${totalSavedLogs} new and updated ${totalUpdatedLogs} existing health & workout entries.`;
+    } else if (totalSavedLogs > 0) {
+      finalSummary = `Successfully synced ${totalSavedLogs} new health & workout log${totalSavedLogs > 1 ? 's' : ''} from ${filesToProcess.length} file${filesToProcess.length > 1 ? 's' : ''}.`;
+    } else if (totalUpdatedLogs > 0) {
+      finalSummary = `Updated ${totalUpdatedLogs} existing health & workout log${totalUpdatedLogs > 1 ? 's' : ''} with latest metrics.`;
+    } else {
+      finalSummary = `Sync complete. All ${allNewLogs.length} items were already up to date.`;
+    }
 
     if (userProfile && driveState.contextFileId) {
       const updatedProfile: UserProfile = {
         ...userProfile,
         lastImportSyncTimestamp: nowIso,
         lastImportSyncStatus: 'success',
-        lastImportSyncSummary: finalSummary
+        lastImportSyncSummary: finalSummary,
+        lastImportFileHashes: fileHashes
       };
       await saveUserProfileToDrive(token, driveState.contextFileId, updatedProfile);
     }
@@ -214,13 +289,14 @@ export async function executeExternalDataSync(
     onProgress?.({
       status: 'success',
       message: finalSummary,
-      details: { totalSavedLogs, filesProcessed: totalFiles }
+      details: { totalSavedLogs, totalUpdatedLogs, filesProcessed: filesToProcess.length }
     });
 
     return {
       success: true,
       totalNewLogsAdded: totalSavedLogs,
-      filesProcessed: totalFiles,
+      totalLogsUpdated: totalUpdatedLogs,
+      filesProcessed: filesToProcess.length,
       message: finalSummary,
       errors: errors.length > 0 ? errors : undefined
     };
@@ -251,6 +327,7 @@ export async function executeExternalDataSync(
     return {
       success: false,
       totalNewLogsAdded: 0,
+      totalLogsUpdated: 0,
       filesProcessed: 0,
       message: errorMsg,
       errors: [errorMsg]

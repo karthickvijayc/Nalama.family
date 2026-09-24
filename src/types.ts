@@ -103,6 +103,7 @@ export interface UserProfile {
   lastImportSyncTimestamp?: string;
   lastImportSyncStatus?: 'success' | 'error' | 'idle';
   lastImportSyncSummary?: string;
+  lastImportFileHashes?: Record<string, string>;
 }
 
 export interface DriveState {

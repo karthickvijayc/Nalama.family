@@ -43,7 +43,11 @@ export default function App() {
   const initialSyncAttemptedRef = useRef(false);
 
   // Trigger sync process
-  const runExternalDataSync = async (currentDriveState: DriveState, profileToUse?: UserProfile | null) => {
+  const runExternalDataSync = async (
+    currentDriveState: DriveState, 
+    profileToUse?: UserProfile | null, 
+    forceSync: boolean = false
+  ) => {
     const prof = profileToUse || userProfile;
     if (!prof?.enableExternalDataImport) {
       return;
@@ -67,7 +71,8 @@ export default function App() {
             setSyncMessage('');
           }, 4500);
         }
-      }
+      },
+      forceSync
     );
 
     setIsManualSyncing(false);
@@ -298,7 +303,7 @@ export default function App() {
             onOpenDeveloperGuide={() => setActiveTab('developer_guide')}
             onTriggerManualSync={async () => {
               if (driveState) {
-                await runExternalDataSync(driveState);
+                await runExternalDataSync(driveState, undefined, true);
               }
             }}
             onUpdateProfile={async (updated) => {

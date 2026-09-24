@@ -591,27 +591,39 @@ export interface DriveImportFile {
   mimeType: string;
   modifiedTime: string;
   size?: string;
+  md5Checksum?: string;
 }
 
 /**
- * Lists all importable files (.json, .csv) inside a specified folder
+ * Lists all importable files (.json, .csv, .xlsx) inside a specified folder, with full Drive API pagination
  */
 export async function listImportFolderFiles(token: string, folderId: string): Promise<DriveImportFile[]> {
+  const allFiles: DriveImportFile[] = [];
+  let pageToken: string | undefined = undefined;
+
   try {
     const q = `'${folderId}' in parents and trashed = false`;
-    const url = `${DRIVE_API}?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,modifiedTime,size)&orderBy=modifiedTime desc&spaces=drive`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json'
+    do {
+      const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+      const url = `${DRIVE_API}?q=${encodeURIComponent(q)}&pageSize=100&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,md5Checksum)&orderBy=modifiedTime desc&spaces=drive${pageParam}`;
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json'
+        }
+      });
+      if (!res.ok) break;
+      const data = await res.json();
+      if (Array.isArray(data.files)) {
+        allFiles.push(...data.files);
       }
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.files || [];
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return allFiles;
   } catch (err) {
     console.warn('Failed to list import folder files:', err);
-    return [];
+    return allFiles;
   }
 }
 

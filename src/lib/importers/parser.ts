@@ -120,7 +120,11 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
     const maxWeight = Math.max(...(ex.sets || []).map(s => s.weightKg || 0), 0);
     const topReps = ex.sets?.[0]?.reps || 0;
     const weightStr = maxWeight > 0 ? ` @ ${maxWeight}kg` : '';
-    return `${ex.exerciseName} (${setCount} sets${weightStr}${topReps ? `, ${topReps} reps` : ''})`;
+    const metaParts: string[] = [];
+    if (ex.targetMuscleGroup) metaParts.push(ex.targetMuscleGroup);
+    if (ex.equipment) metaParts.push(ex.equipment);
+    const metaStr = metaParts.length > 0 ? ` [${metaParts.join(' / ')}]` : '';
+    return `${ex.exerciseName}${metaStr} (${setCount} sets${weightStr}${topReps ? `, ${topReps} reps` : ''})`;
   });
 
   const detailLines: string[] = [];
@@ -176,11 +180,12 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
     const deepMins = record.sleep.deepSleepMinutes || 0;
     const remMins = record.sleep.remSleepMinutes || 0;
     const lightMins = record.sleep.lightSleepMinutes || 0;
+    const awakeMins = record.sleep.awakeMinutes || 0;
     const efficiency = record.sleep.sleepEfficiencyScore ? ` | Efficiency: ${record.sleep.sleepEfficiencyScore}%` : '';
     
     const lines = [
       `😴 Sleep Summary: ${totalHours} hrs total sleep`,
-      `• Stages: Deep: ${deepMins}m, REM: ${remMins}m, Light: ${lightMins}m${efficiency}`
+      `• Stages: Deep: ${deepMins}m, REM: ${remMins}m, Light: ${lightMins}m${awakeMins ? `, Awake: ${awakeMins}m` : ''}${efficiency}`
     ];
     if (record.sleep.sleepScore) {
       lines.push(`• Sleep Quality Score: ${record.sleep.sleepScore}/100`);
@@ -250,7 +255,8 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       lines.push(`• Blood Oxygen (SpO2): ${record.vitals.oxygenSaturationPct.avg.toFixed(0)}%`);
     }
     if (record.vitals.bloodPressureMmHg?.systolic && record.vitals.bloodPressureMmHg?.diastolic) {
-      lines.push(`• Blood Pressure: ${record.vitals.bloodPressureMmHg.systolic}/${record.vitals.bloodPressureMmHg.diastolic} mmHg`);
+      const pulseStr = record.vitals.bloodPressureMmHg.pulse ? ` (Pulse: ${record.vitals.bloodPressureMmHg.pulse} bpm)` : '';
+      lines.push(`• Blood Pressure: ${record.vitals.bloodPressureMmHg.systolic}/${record.vitals.bloodPressureMmHg.diastolic} mmHg${pulseStr}`);
     }
     if (record.vitals.bloodGlucoseMmolL?.avg) {
       lines.push(`• Blood Glucose: ${record.vitals.bloodGlucoseMmolL.avg} mmol/L`);
@@ -366,10 +372,12 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
     const headerStr = headers.join(' ').toLowerCase();
 
     // A. Workout CSV (e.g., Hevy, Strong, FitNotes)
-    // Headers typically contain: Date, Workout Title, Exercise Name, Set #, Weight, Reps
+    // Headers typically contain: workout_id, title, exercise_name, set_number, weight_kg, reps, or Workout Title, Set #, etc.
     if (
       headerStr.includes('workout') || 
       headerStr.includes('exercise') || 
+      headerStr.includes('set_number') ||
+      headerStr.includes('set #') || 
       headerStr.includes('set') || 
       lowerName.includes('hevy') || 
       lowerName.includes('workout') || 
@@ -378,44 +386,46 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       // Group rows by workout title + date
       const sessionMap = new Map<string, CanonicalWorkoutSession>();
 
-      rows.forEach((row, idx) => {
-        const date = row['Date'] || row['date'] || row['Start Date'] || new Date().toISOString().split('T')[0];
-        const title = row['Workout Title'] || row['Workout Name'] || row['title'] || 'Gym Workout';
-        const workoutId = row['Hevy Workout ID'] || row['Workout ID'] || `${date}-${title.replace(/\s+/g, '_')}`;
+      rows.forEach((row) => {
+        const date = row['date'] || row['Date'] || row['Start Date'] || new Date().toISOString().split('T')[0];
+        const title = row['title'] || row['Workout Title'] || row['Workout Name'] || 'Gym Workout';
+        const workoutId = row['workout_id'] || row['Workout ID'] || row['Hevy Workout ID'] || `${date}-${title.replace(/\s+/g, '_')}`;
 
         if (!sessionMap.has(workoutId)) {
           sessionMap.set(workoutId, {
             workoutId,
             date,
             title,
-            startTime: row['Start Time'] || row['start_time'] || '08:00',
-            endTime: row['End Time'] || row['end_time'] || '',
-            durationMinutes: parseFloat(row['Duration (min)'] || row['duration'] || '45') || 45,
-            totalVolumeKg: parseFloat(row['Total Volume (kg)'] || '0') || 0,
-            totalSets: parseInt(row['Total Sets'] || '0', 10) || 0,
-            avgHeartRateBpm: parseFloat(row['Avg Heart Rate (bpm)'] || row['Avg Heart Rate'] || '0') || undefined,
-            maxHeartRateBpm: parseFloat(row['Max Heart Rate (bpm)'] || row['Max Heart Rate'] || '0') || undefined,
-            caloriesActualHr: parseFloat(row['Calories (Actual / HR)'] || row['Calories'] || '0') || undefined,
+            startTime: row['start_time'] || row['Start Time'] || '08:00',
+            endTime: row['end_time'] || row['End Time'] || '',
+            durationMinutes: parseFloat(row['duration_minutes'] || row['Duration (min)'] || row['duration'] || '45') || 45,
+            totalVolumeKg: parseFloat(row['total_volume_kg'] || row['Total Volume (kg)'] || '0') || 0,
+            totalSets: parseInt(row['total_sets'] || row['Total Sets'] || '0', 10) || 0,
+            avgHeartRateBpm: parseFloat(row['avg_hr_bpm'] || row['Avg Heart Rate (bpm)'] || row['Avg Heart Rate'] || '0') || undefined,
+            maxHeartRateBpm: parseFloat(row['max_hr_bpm'] || row['Max Heart Rate (bpm)'] || row['Max Heart Rate'] || '0') || undefined,
+            caloriesActualHr: parseFloat(row['calories'] || row['Calories (Actual / HR)'] || row['Calories'] || '0') || undefined,
             caloriesEstMet: parseFloat(row['Calories (Est. MET)'] || '0') || undefined,
-            notes: row['Workout Notes'] || row['Notes'] || undefined,
+            notes: row['notes'] || row['Workout Notes'] || row['Notes'] || undefined,
             exercises: []
           });
         }
 
         const session = sessionMap.get(workoutId)!;
-        const exerciseName = row['Exercise Name'] || row['Exercise'] || row['exercise'] || '';
+        const exerciseName = row['exercise_name'] || row['Exercise Name'] || row['Exercise'] || row['exercise'] || '';
         if (exerciseName) {
           let exGroup = session.exercises.find(e => e.exerciseName === exerciseName);
           if (!exGroup) {
-            exGroup = { exerciseName, sets: [] };
+            const targetMuscleGroup = row['target_muscle_group'] || row['Muscle Group'] || undefined;
+            const equipment = row['equipment'] || row['Equipment'] || undefined;
+            exGroup = { exerciseName, targetMuscleGroup, equipment, sets: [] };
             session.exercises.push(exGroup);
           }
 
-          const weightKg = parseFloat(row['Weight (kg)'] || row['Weight'] || '0') || 0;
-          const reps = parseInt(row['Reps'] || row['reps'] || '0', 10) || 0;
-          const rpe = parseFloat(row['RPE'] || row['rpe'] || '0') || undefined;
-          const setNumber = parseInt(row['Set #'] || row['Set Order'] || String(exGroup.sets.length + 1), 10) || exGroup.sets.length + 1;
-          const setTypeRaw = (row['Set Type'] || row['Type'] || 'normal').toLowerCase();
+          const weightKg = parseFloat(row['weight_kg'] || row['Weight (kg)'] || row['Weight'] || '0') || 0;
+          const reps = parseInt(row['reps'] || row['Reps'] || '0', 10) || 0;
+          const rpe = parseFloat(row['rpe'] || row['RPE'] || '0') || undefined;
+          const setNumber = parseInt(row['set_number'] || row['Set #'] || row['Set Order'] || String(exGroup.sets.length + 1), 10) || exGroup.sets.length + 1;
+          const setTypeRaw = (row['set_type'] || row['Set Type'] || row['Type'] || 'normal').toLowerCase();
           const setType: any = ['warmup', 'failure', 'drop', 'rest_pause'].includes(setTypeRaw) ? setTypeRaw : 'normal';
 
           exGroup.sets.push({
@@ -425,8 +435,8 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             reps,
             rpe,
             setVolumeKg: weightKg * reps,
-            durationSeconds: parseFloat(row['Duration (s)'] || '0') || undefined,
-            distanceMeters: parseFloat(row['Distance (m)'] || '0') || undefined
+            durationSeconds: parseFloat(row['duration_seconds'] || row['Duration (s)'] || '0') || undefined,
+            distanceMeters: parseFloat(row['distance_meters'] || row['Distance (m)'] || '0') || undefined
           });
         }
       });
@@ -453,15 +463,17 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       };
     }
 
-    // B. Health / Biometrics CSV (e.g. Health Data Exporter, Activity, Sleep, Vitals)
+    // B. Health / Biometrics CSV (e.g. Health Connect, Health Data Exporter, Activity, Sleep, Vitals)
     const dailyMap = new Map<string, CanonicalDailyHealthRecord>();
 
     rows.forEach(row => {
-      const date = row['Date'] || row['date'] || row['Date/Time']?.split(' ')[0] || new Date().toISOString().split('T')[0];
+      const date = row['date'] || row['Date'] || row['Date/Time']?.split(' ')[0] || new Date().toISOString().split('T')[0];
       if (!dailyMap.has(date)) {
+        const rawSources = row['sources'] || row['Source(s)'] || row['source'] || 'HealthConnect';
+        const sources = typeof rawSources === 'string' ? rawSources.split(';').map(s => s.trim()).filter(Boolean) : ['HealthConnect'];
         dailyMap.set(date, {
           date,
-          sources: [row['Source(s)'] || row['source'] || 'CSV_Import'],
+          sources: sources.length > 0 ? sources : ['HealthConnect'],
           activity: {},
           sleep: {},
           vitals: {},
@@ -471,61 +483,107 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       const rec = dailyMap.get(date)!;
 
       // Activity columns
-      if (row['Steps'] || row['steps']) {
+      const steps = parseInt(row['steps'] || row['Steps'] || '0', 10);
+      if (steps > 0 || row['steps'] !== undefined || row['Steps'] !== undefined) {
         rec.activity = rec.activity || {};
-        rec.activity.steps = parseInt(row['Steps'] || row['steps'] || '0', 10);
+        rec.activity.steps = steps;
       }
-      if (row['Distance (m)'] || row['Distance']) {
+      const distance = parseFloat(row['distance_meters'] || row['Distance (m)'] || row['Distance'] || '0');
+      if (distance > 0) {
         rec.activity = rec.activity || {};
-        rec.activity.distanceMeters = parseFloat(row['Distance (m)'] || row['Distance'] || '0');
+        rec.activity.distanceMeters = distance;
       }
-      if (row['Total Calories (kcal)'] || row['Active Calories (kcal)'] || row['Calories']) {
+      const totalCal = parseFloat(row['total_calories_kcal'] || row['Total Calories (kcal)'] || '0');
+      const activeCal = parseFloat(row['active_calories_kcal'] || row['Active Calories (kcal)'] || row['Calories'] || '0');
+      if (totalCal > 0 || activeCal > 0) {
         rec.activity = rec.activity || {};
-        rec.activity.totalCaloriesKcal = parseFloat(row['Total Calories (kcal)'] || '0');
-        rec.activity.activeCaloriesKcal = parseFloat(row['Active Calories (kcal)'] || row['Calories'] || '0');
+        if (totalCal > 0) rec.activity.totalCaloriesKcal = totalCal;
+        if (activeCal > 0) rec.activity.activeCaloriesKcal = activeCal;
       }
-      if (row['VO2 max avg (ml/min/kg)']) {
+      const activeMins = parseInt(row['active_duration_minutes'] || row['Active Time (min)'] || '0', 10);
+      if (activeMins > 0) {
         rec.activity = rec.activity || {};
-        rec.activity.vo2MaxMlKgMin = { avg: parseFloat(row['VO2 max avg (ml/min/kg)']) };
+        rec.activity.activeDurationMinutes = activeMins;
+      }
+      const vo2Max = parseFloat(row['vo2_max_avg'] || row['VO2 max avg (ml/min/kg)'] || '0');
+      if (vo2Max > 0) {
+        rec.activity = rec.activity || {};
+        rec.activity.vo2MaxMlKgMin = { avg: vo2Max };
       }
 
       // Sleep columns
-      if (row['Light Sleep (min)'] || row['Deep Sleep (min)'] || row['REM Sleep (min)']) {
+      const totalSleep = parseInt(row['total_sleep_minutes'] || '0', 10);
+      const lightSleep = parseInt(row['light_sleep_minutes'] || row['Light Sleep (min)'] || '0', 10);
+      const deepSleep = parseInt(row['deep_sleep_minutes'] || row['Deep Sleep (min)'] || '0', 10);
+      const remSleep = parseInt(row['rem_sleep_minutes'] || row['REM Sleep (min)'] || '0', 10);
+      const awake = parseInt(row['awake_minutes'] || row['Awake (min)'] || '0', 10);
+      const sleepScore = parseInt(row['sleep_efficiency_score'] || row['Sleep Score'] || '0', 10);
+
+      if (totalSleep > 0 || lightSleep > 0 || deepSleep > 0 || remSleep > 0) {
         rec.sleep = rec.sleep || {};
-        rec.sleep.lightSleepMinutes = parseFloat(row['Light Sleep (min)'] || '0');
-        rec.sleep.deepSleepMinutes = parseFloat(row['Deep Sleep (min)'] || '0');
-        rec.sleep.remSleepMinutes = parseFloat(row['REM Sleep (min)'] || '0');
-        rec.sleep.awakeMinutes = parseFloat(row['Awake (min)'] || '0');
-        rec.sleep.totalSleepMinutes = (rec.sleep.lightSleepMinutes || 0) + (rec.sleep.deepSleepMinutes || 0) + (rec.sleep.remSleepMinutes || 0);
+        rec.sleep.lightSleepMinutes = lightSleep;
+        rec.sleep.deepSleepMinutes = deepSleep;
+        rec.sleep.remSleepMinutes = remSleep;
+        rec.sleep.awakeMinutes = awake;
+        rec.sleep.totalSleepMinutes = totalSleep > 0 ? totalSleep : (lightSleep + deepSleep + remSleep);
+        if (sleepScore > 0) rec.sleep.sleepEfficiencyScore = sleepScore;
       }
 
       // Vitals columns
-      if (row['Heart rate avg (bpm)'] || row['Resting heart rate avg (bpm)']) {
+      const rhrMin = parseFloat(row['resting_hr_min'] || '0');
+      const rhrMax = parseFloat(row['resting_hr_max'] || '0');
+      const rhrAvg = parseFloat(row['resting_hr_avg'] || row['Resting heart rate avg (bpm)'] || '0');
+      if (rhrAvg > 0 || rhrMin > 0 || rhrMax > 0) {
         rec.vitals = rec.vitals || {};
-        if (row['Heart rate avg (bpm)']) rec.vitals.heartRateBpm = { avg: parseFloat(row['Heart rate avg (bpm)']) };
-        if (row['Resting heart rate avg (bpm)']) rec.vitals.restingHeartRateBpm = { avg: parseFloat(row['Resting heart rate avg (bpm)']) };
+        rec.vitals.restingHeartRateBpm = {
+          min: rhrMin > 0 ? rhrMin : undefined,
+          max: rhrMax > 0 ? rhrMax : undefined,
+          avg: rhrAvg > 0 ? rhrAvg : undefined
+        };
       }
-      if (row['Heart rate variability avg (ms)']) {
+      const hrAvg = parseFloat(row['Heart rate avg (bpm)'] || '0');
+      if (hrAvg > 0) {
         rec.vitals = rec.vitals || {};
-        rec.vitals.heartRateVariabilityMs = { avg: parseFloat(row['Heart rate variability avg (ms)']) };
+        rec.vitals.heartRateBpm = { avg: hrAvg };
       }
-      if (row['Oxygen saturation avg (%)']) {
+      const hrvAvg = parseFloat(row['hrv_ms_avg'] || row['Heart rate variability avg (ms)'] || '0');
+      if (hrvAvg > 0) {
         rec.vitals = rec.vitals || {};
-        rec.vitals.oxygenSaturationPct = { avg: parseFloat(row['Oxygen saturation avg (%)']) };
+        rec.vitals.heartRateVariabilityMs = { avg: hrvAvg };
+      }
+      const spo2Avg = parseFloat(row['oxygen_saturation_pct_avg'] || row['Oxygen saturation avg (%)'] || '0');
+      if (spo2Avg > 0) {
+        rec.vitals = rec.vitals || {};
+        rec.vitals.oxygenSaturationPct = { avg: spo2Avg };
+      }
+      // Blood Pressure
+      const sys = parseFloat(row['bp_systolic'] || '0');
+      const dia = parseFloat(row['bp_diastolic'] || '0');
+      const pulse = parseFloat(row['bp_pulse'] || '0');
+      if (sys > 0 && dia > 0) {
+        rec.vitals = rec.vitals || {};
+        rec.vitals.bloodPressureMmHg = {
+          systolic: sys,
+          diastolic: dia,
+          pulse: pulse > 0 ? pulse : undefined
+        };
       }
 
       // Body Measurements
-      if (row['Weight (kg)'] || row['Weight']) {
+      const weight = parseFloat(row['weight_kg'] || row['Weight (kg)'] || row['Weight'] || '0');
+      if (weight > 0) {
         rec.bodyMeasurements = rec.bodyMeasurements || {};
-        rec.bodyMeasurements.weightKg = parseFloat(row['Weight (kg)'] || row['Weight'] || '0');
+        rec.bodyMeasurements.weightKg = weight;
       }
-      if (row['Body Fat (%)']) {
+      const bodyFat = parseFloat(row['body_fat_pct'] || row['Body Fat (%)'] || '0');
+      if (bodyFat > 0) {
         rec.bodyMeasurements = rec.bodyMeasurements || {};
-        rec.bodyMeasurements.bodyFatPct = parseFloat(row['Body Fat (%)']);
+        rec.bodyMeasurements.bodyFatPct = bodyFat;
       }
-      if (row['Lean body mass (kg)']) {
+      const leanMass = parseFloat(row['lean_body_mass_kg'] || row['Lean body mass (kg)'] || '0');
+      if (leanMass > 0) {
         rec.bodyMeasurements = rec.bodyMeasurements || {};
-        rec.bodyMeasurements.leanBodyMassKg = parseFloat(row['Lean body mass (kg)']);
+        rec.bodyMeasurements.leanBodyMassKg = leanMass;
       }
     });
 

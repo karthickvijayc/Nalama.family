@@ -212,23 +212,42 @@ function syncHevyToNalama() {
       <section className="bg-white p-5 rounded-[2rem] border border-stone-200 shadow-xs flex flex-col gap-3">
         <div className="flex items-center gap-2 text-stone-900">
           <FolderTree size={20} className="text-teal-700" />
-          <h2 className="text-lg font-bold">Google Drive Folder Paths</h2>
+          <h2 className="text-lg font-bold">Google Drive Folder Paths & Retention</h2>
         </div>
         <p className="text-xs text-stone-600 leading-relaxed">
-          Place your exported files in either of the two subfolders located in your private Google Drive:
+          The <span className="font-bold text-stone-900">Nalama Health Companion</span> and external automation scripts write directly into these Google Drive folders:
         </p>
 
         <div className="bg-stone-900 text-stone-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto leading-relaxed border border-stone-800">
           <span className="text-stone-400">My Drive /</span><br/>
           &nbsp;&nbsp;└── <span className="text-teal-400 font-bold">nalama.family/</span><br/>
           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-amber-300">context_memory.json</span> <span className="text-stone-500">(Facts & Profile)</span><br/>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-amber-300">logs_2026_09.json</span> <span className="text-stone-500">(Monthly partitions)</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-amber-300">logs_YYYY_MM.json</span> <span className="text-stone-500">(Monthly partitions)</span><br/>
           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-teal-300 font-bold">imports/</span><br/>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-emerald-400 font-bold">health_data/</span> <span className="text-stone-400">← Place Biometrics, Sleep, & Steps here</span><br/>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;├── <span className="text-stone-300">biometrics_daily.json</span> / <span className="text-stone-300">*.csv</span><br/>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-sky-400 font-bold">gym_workouts/</span> <span className="text-stone-400">← Place Hevy / Strong workouts here</span><br/>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-stone-300">hevy_workouts.json</span> / <span className="text-stone-300">*.csv</span>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-emerald-400 font-bold">health_data/</span> <span className="text-stone-400">← Health Connect & Biometrics</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;├── <span className="text-emerald-300 font-bold">biometrics_daily.csv</span> <span className="text-stone-400">(Active 180-day window)</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;└── <span className="text-stone-300">biometrics_daily_YYYY.csv</span> <span className="text-stone-500">(Yearly archives, e.g. 2025)</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-sky-400 font-bold">gym_workouts/</span> <span className="text-stone-400">← Hevy & Resistance Training</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span className="text-sky-300 font-bold">hevy_workouts.csv</span> <span className="text-stone-400">(Active 180-day window)</span><br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-stone-300">hevy_workouts_YYYY.csv</span> <span className="text-stone-500">(Yearly archives, e.g. 2025)</span>
         </div>
+      </section>
+
+      {/* Nalama Health Companion App Card */}
+      <section className="bg-gradient-to-br from-emerald-50 via-teal-50 to-sky-50 p-5 rounded-[2rem] border border-teal-200/80 shadow-xs flex flex-col gap-3">
+        <div className="flex items-center gap-2 text-teal-950">
+          <Activity size={20} className="text-emerald-700" />
+          <h2 className="text-lg font-bold">Nalama Health Companion (Android App)</h2>
+        </div>
+        <p className="text-xs text-stone-700 leading-relaxed">
+          The companion app (<code className="bg-white/80 px-1 py-0.5 rounded text-teal-900 font-bold">nalama.companion</code>) runs on Android and syncs natively with Google Drive:
+        </p>
+        <ul className="text-xs text-stone-700 space-y-1.5 list-disc list-inside">
+          <li><strong>Health Connect Bridge:</strong> Syncs steps, sleep stages, resting HR, HRV, SpO2, blood pressure, and body composition.</li>
+          <li><strong>Hevy Workouts Integration:</strong> Syncs resistance training exercises, sets, weights, reps, and RPE via Hevy's paginated API.</li>
+          <li><strong>180-Day Retention:</strong> Active files keep 180 days; older records automatically partition into yearly archives (<code className="bg-white/80 px-1 rounded">*_2025.csv</code>).</li>
+          <li><strong>Background Automation:</strong> Periodic sync via Android WorkManager (15 min to 24 hr schedules) with zero server intermediaries.</li>
+        </ul>
       </section>
 
       {/* Canonical Schema 1: Health & Biometrics */}
@@ -247,7 +266,7 @@ function syncHevyToNalama() {
           </button>
         </div>
         <p className="text-xs text-stone-600 leading-relaxed">
-          Generic and future-proof across Android Health Connect, Samsung Health, Apple HealthKit, Oura, Garmin, and Fitbit. Save as <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">biometrics_daily.json</code>.
+          Generic and future-proof across Android Health Connect, Samsung Health, Apple HealthKit, Oura, Garmin, and Fitbit. Save as <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">biometrics_daily.json</code> or <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">biometrics_daily.csv</code>.
         </p>
 
         <div className="relative">
@@ -273,7 +292,7 @@ function syncHevyToNalama() {
           </button>
         </div>
         <p className="text-xs text-stone-600 leading-relaxed">
-          Structured for granular exercise & progressive overload reasoning by Gemini (exercises, set type, RPE, weights, volume). Save as <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">hevy_workouts.json</code>.
+          Structured for granular exercise & progressive overload reasoning by Gemini (exercises, set type, RPE, weights, volume). Save as <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">hevy_workouts.json</code> or <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-bold">hevy_workouts.csv</code>.
         </p>
 
         <div className="relative">
@@ -287,15 +306,28 @@ function syncHevyToNalama() {
       <section className="bg-white p-5 rounded-[2rem] border border-stone-200 shadow-xs flex flex-col gap-3">
         <div className="flex items-center gap-2 text-stone-900">
           <FileCode size={20} className="text-amber-600" />
-          <h2 className="text-lg font-bold">3. CSV Files Supported</h2>
+          <h2 className="text-lg font-bold">3. Standardized CSV Formats Supported</h2>
         </div>
         <p className="text-xs text-stone-600 leading-relaxed">
-          You can also directly drop raw CSV exports without writing a translator script. The in-app parser automatically detects:
+          The in-app parser supports both <span className="font-bold text-stone-900">Nalama Companion CSV</span> exports and third-party spreadsheet formats:
         </p>
-        <ul className="text-xs text-stone-700 font-medium space-y-2 list-disc list-inside bg-stone-50 p-4 rounded-2xl border border-stone-150">
-          <li><strong>Hevy / Strong / FitNotes CSV:</strong> Columns like <code>Date, Workout Title, Exercise Name, Set #, Weight, Reps, RPE</code>.</li>
-          <li><strong>Health Data Exporter CSV:</strong> Columns like <code>Date, Steps, Light Sleep (min), Deep Sleep (min), Heart rate avg, Blood pressure</code>.</li>
-        </ul>
+        <div className="text-xs text-stone-700 font-medium space-y-3 bg-stone-50 p-4 rounded-2xl border border-stone-150">
+          <div>
+            <span className="font-bold text-stone-900">Nalama Companion Health CSV (biometrics_daily.csv):</span>
+            <p className="font-mono text-[11px] text-stone-600 mt-1 break-all bg-white p-2 rounded-xl border border-stone-200">
+              date,sources,steps,distance_meters,total_calories_kcal,active_calories_kcal,active_duration_minutes,vo2_max_avg,total_sleep_minutes,light_sleep_minutes,deep_sleep_minutes,rem_sleep_minutes,awake_minutes,sleep_efficiency_score,resting_hr_min,resting_hr_max,resting_hr_avg,hrv_ms_avg,oxygen_saturation_pct_avg,bp_systolic,bp_diastolic,bp_pulse,weight_kg,body_fat_pct,lean_body_mass_kg
+            </p>
+          </div>
+          <div>
+            <span className="font-bold text-stone-900">Nalama Companion Workouts CSV (hevy_workouts.csv):</span>
+            <p className="font-mono text-[11px] text-stone-600 mt-1 break-all bg-white p-2 rounded-xl border border-stone-200">
+              workout_id,date,title,start_time,end_time,duration_minutes,total_volume_kg,total_sets,avg_hr_bpm,max_hr_bpm,calories,exercise_name,target_muscle_group,equipment,set_number,set_type,weight_kg,reps,rpe,notes
+            </p>
+          </div>
+          <p className="text-[11px] text-stone-500 pt-1">
+            Legacy columns like <code>Set #, Weight (kg), Duration (min), Light Sleep (min)</code> from Excel files are also fully recognized.
+          </p>
+        </div>
       </section>
 
       {/* Copyable Google Apps Script Template */}
