@@ -19,9 +19,9 @@ export default function SyncFloatingBanner({ status, message, onDismiss, onRetry
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%] animate-in fade-in slide-in-from-top-4 duration-300">
       <div className={`
         flex items-center justify-between gap-3 px-4 py-3 rounded-2xl shadow-xl backdrop-blur-md border transition-all
-        ${isBusy ? 'bg-stone-900/90 text-white border-stone-700/80 shadow-stone-950/20' : ''}
-        ${isSuccess ? 'bg-emerald-950/90 text-emerald-100 border-emerald-700/60 shadow-emerald-950/20' : ''}
-        ${isError ? 'bg-rose-950/90 text-rose-100 border-rose-700/60 shadow-rose-950/20' : ''}
+        ${isBusy ? 'bg-[#183428]/95 text-white border-teal-600/50 shadow-teal-950/20' : ''}
+        ${isSuccess ? 'bg-[#143d2b]/95 text-emerald-100 border-emerald-500/50 shadow-emerald-950/20' : ''}
+        ${isError ? 'bg-[#3b151b]/95 text-rose-100 border-rose-600/50 shadow-rose-950/20' : ''}
       `}>
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {isBusy && (

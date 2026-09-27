@@ -254,19 +254,28 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
   };
 
   // Scan Google Drive for shared care_digest.json files
-  const handleScanSharedDigests = async () => {
+  const handleScanSharedDigests = useCallback(async () => {
     if (!driveState) return;
     setIsScanningDrive(true);
     try {
-      const files = await searchSharedCareDigests(driveState.token);
+      const files = await searchSharedCareDigests(driveState.token, driveState.contextFileId);
       setDiscoveredFiles(files);
-      if (files.length === 0) {
-        alert('No files named "care_digest.json" were found shared with your Google Account yet. Make sure your loved one added your email in their Nalama app.');
-      }
     } catch (err) {
       console.error('Scan error:', err);
     } finally {
       setIsScanningDrive(false);
+    }
+  }, [driveState]);
+
+  // Open Add Loved One Modal and trigger auto-scan
+  const handleOpenAddModal = () => {
+    setNewMemberName('');
+    setNewMemberEmail('');
+    setNewMemberFileId('');
+    setDiscoveredFiles([]);
+    setShowAddProfileModal(true);
+    if (driveState) {
+      handleScanSharedDigests();
     }
   };
 
@@ -339,17 +348,11 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
       <header className="flex flex-col gap-4">
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                <Wifi size={12} className="text-teal-600" />
-                Remote Care Only
-              </span>
-            </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-stone-900 mt-1">
+            <h1 className="text-3xl font-extrabold tracking-tight text-stone-900">
               Family Circle
             </h1>
             <p className="text-base text-stone-500 font-medium mt-0.5">
-              Read-only caregiver digests synced directly from loved ones&apos; Google Drive.
+              Care and health summaries shared by loved ones.
             </p>
           </div>
 
@@ -386,7 +389,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                   key={profile.id}
                   className={`group shrink-0 py-2 px-3 rounded-2xl font-bold flex items-center gap-2 transition-all border cursor-pointer select-none ${
                     isSelected 
-                      ? 'bg-stone-900 border-canopy-500 text-white shadow-sm ring-1 ring-canopy-500/40' 
+                      ? 'bg-tree-800 border-tree-600 text-white shadow-sm ring-1 ring-tree-500/40' 
                       : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
                   }`}
                   onClick={() => setSelectedProfileId(profile.id)}
@@ -401,7 +404,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                   <span className="text-xs truncate max-w-[130px]">{profile.name}</span>
                   {profile.relationship && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold ${
-                      isSelected ? 'bg-stone-800 text-stone-300' : 'bg-stone-100 text-stone-500'
+                      isSelected ? 'bg-tree-900 text-tree-200' : 'bg-stone-100 text-stone-500'
                     }`}>
                       {profile.relationship}
                     </span>
@@ -432,7 +435,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                   <button
                     type="button"
                     onClick={(e) => handleDeleteProfile(profile.id, e)}
-                    className="p-1 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-white/10 transition-colors"
+                    className="p-1 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
                     title="Remove from remote care"
                     aria-label="Remove from remote care"
                   >
@@ -444,17 +447,11 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
 
             {/* Add Loved One Button */}
             <button
-              onClick={() => {
-                setNewMemberName('');
-                setNewMemberEmail('');
-                setNewMemberFileId('');
-                setDiscoveredFiles([]);
-                setShowAddProfileModal(true);
-              }}
-              className="shrink-0 py-2 px-3.5 rounded-2xl border border-dashed border-stone-300 text-stone-600 hover:text-stone-900 hover:border-stone-400 bg-stone-50/70 hover:bg-stone-100 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              onClick={handleOpenAddModal}
+              className="shrink-0 py-2 px-3.5 rounded-2xl border border-tree-200 text-tree-800 bg-tree-50/80 hover:bg-tree-100 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               title="Add a remote loved one"
             >
-              <Plus size={14} />
+              <Plus size={14} className="text-tree-700" />
               <span>Add Loved One</span>
             </button>
           </div>
@@ -480,14 +477,8 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
             </div>
 
             <button
-              onClick={() => {
-                setNewMemberName('');
-                setNewMemberEmail('');
-                setNewMemberFileId('');
-                setDiscoveredFiles([]);
-                setShowAddProfileModal(true);
-              }}
-              className="mt-2 px-6 py-3.5 bg-stone-900 hover:bg-black active:scale-95 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-md transition-all cursor-pointer"
+              onClick={handleOpenAddModal}
+              className="mt-2 px-6 py-3.5 bg-tree-700 hover:bg-tree-800 active:scale-95 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-md transition-all cursor-pointer"
             >
               <UserPlus size={18} />
               <span>Add Loved One</span>
@@ -502,31 +493,37 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="bg-stone-50/80 border border-stone-200/80 p-4 rounded-2xl flex flex-col gap-2">
-                <div className="w-8 h-8 rounded-xl bg-tree-100 text-tree-800 flex items-center justify-center font-bold text-xs">
-                  1
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-tree-100 text-tree-800 flex items-center justify-center font-bold text-xs shrink-0">
+                    1
+                  </div>
+                  <h4 className="font-bold text-stone-900 text-sm">Loved One Logs on Their Phone</h4>
                 </div>
-                <h4 className="font-bold text-stone-900 text-sm">Loved One Logs on Their Phone</h4>
-                <p className="text-xs text-stone-500 font-medium leading-relaxed">
+                <p className="text-xs text-stone-500 font-medium leading-relaxed mt-0.5">
                   Your parent or relative records daily voice memos in Nalama. Gemini synthesizes a high-level care digest into their private Google Drive.
                 </p>
               </div>
 
               <div className="bg-stone-50/80 border border-stone-200/80 p-4 rounded-2xl flex flex-col gap-2">
-                <div className="w-8 h-8 rounded-xl bg-canopy-100 text-canopy-800 flex items-center justify-center font-bold text-xs">
-                  2
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-canopy-100 text-canopy-800 flex items-center justify-center font-bold text-xs shrink-0">
+                    2
+                  </div>
+                  <h4 className="font-bold text-stone-900 text-sm">Direct Drive Sharing</h4>
                 </div>
-                <h4 className="font-bold text-stone-900 text-sm">Direct Drive Sharing</h4>
-                <p className="text-xs text-stone-500 font-medium leading-relaxed">
-                  In their Settings, they grant your Google Account read access to their <span className="font-semibold">family_share</span> folder. No middleman database ever touches your data.
+                <p className="text-xs text-stone-500 font-medium leading-relaxed mt-0.5">
+                  In their Settings, they grant your Google Account read access to their shared care digest. No middleman database ever touches your data.
                 </p>
               </div>
 
               <div className="bg-stone-50/80 border border-stone-200/80 p-4 rounded-2xl flex flex-col gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
-                  3
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs shrink-0">
+                    3
+                  </div>
+                  <h4 className="font-bold text-stone-900 text-sm">Peace of Mind & Dignity</h4>
                 </div>
-                <h4 className="font-bold text-stone-900 text-sm">Peace of Mind & Dignity</h4>
-                <p className="text-xs text-stone-500 font-medium leading-relaxed">
+                <p className="text-xs text-stone-500 font-medium leading-relaxed mt-0.5">
                   You see their vitality, nutrition, and movement highlights in real-time. Raw audio recordings and personal reflections remain strictly confidential.
                 </p>
               </div>
@@ -774,7 +771,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
               <button
                 onClick={handleSyncRemoteDigest}
                 disabled={isRefreshing || !driveState}
-                className="mt-1 px-4 py-2.5 bg-stone-900 hover:bg-black text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer"
+                className="mt-1 px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
                 <span>{isRefreshing ? 'Checking Drive...' : 'Check for Updates'}</span>
@@ -982,65 +979,93 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                 </div>
               </div>
 
-              {/* Remote Drive Digest Connection Section */}
-              <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200 flex flex-col gap-3">
+              {/* Remote Drive Digest Connection Section - Auto-Scanned */}
+              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200/90 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-700">Connect to Shared Google Drive</span>
+                  <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <Wifi size={14} className="text-teal-700" />
+                    Google Drive Shared Care Digest
+                  </span>
                   <button
                     type="button"
                     onClick={handleScanSharedDigests}
                     disabled={isScanningDrive || !driveState}
-                    className="text-xs font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1 cursor-pointer"
+                    className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-stone-200 shadow-xs"
                   >
-                    <Search size={12} className={isScanningDrive ? 'animate-spin' : ''} />
-                    <span>{isScanningDrive ? 'Scanning...' : 'Scan Drive'}</span>
+                    <RefreshCw size={12} className={isScanningDrive ? 'animate-spin text-teal-600' : ''} />
+                    <span>{isScanningDrive ? 'Scanning...' : 'Scan Again'}</span>
                   </button>
                 </div>
 
-                {discoveredFiles.length > 0 && (
-                  <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
-                    <span className="text-[11px] font-bold text-stone-500 uppercase">Discovered Files in Drive:</span>
-                    {discoveredFiles.map((file) => (
-                      <div
-                        key={file.id}
-                        onClick={() => handleSelectDiscoveredFile(file)}
-                        className={`p-2 rounded-xl flex items-center justify-between cursor-pointer border transition-colors text-xs ${
-                          newMemberFileId === file.id 
-                            ? 'bg-teal-50 border-teal-500' 
-                            : 'bg-white border-stone-200 hover:bg-stone-100'
-                        }`}
-                      >
-                        <div className="flex flex-col truncate pr-2">
-                          <span className="font-bold text-stone-900 truncate">
-                            {file.sharingUser?.displayName || file.owners?.[0]?.displayName || 'Loved One'}
-                          </span>
-                          <span className="text-[10px] text-stone-500 truncate">
-                            {file.sharingUser?.emailAddress || file.owners?.[0]?.emailAddress || ''}
-                          </span>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                          newMemberFileId === file.id ? 'bg-teal-600 text-white' : 'bg-stone-100 text-stone-700'
-                        }`}>
-                          {newMemberFileId === file.id ? 'Selected' : 'Select'}
-                        </span>
-                      </div>
-                    ))}
+                {isScanningDrive && (
+                  <div className="py-4 flex flex-col items-center justify-center gap-2 text-stone-500">
+                    <RefreshCw size={18} className="animate-spin text-teal-600" />
+                    <span className="text-xs font-medium">Scanning your Google Drive for shared digests...</span>
                   </div>
                 )}
 
-                <div>
-                  <label className="text-[11px] font-bold text-stone-600 mb-1 block">Drive File ID or Link (Optional)</label>
-                  <input
-                    type="text"
-                    value={newMemberFileId}
-                    onChange={(e) => setNewMemberFileId(e.target.value)}
-                    placeholder="e.g. 1a2b3c4d5e... or Drive URL"
-                    className="w-full px-3 py-2 rounded-xl border border-stone-200 text-xs text-stone-900 font-mono outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-                  />
-                  <p className="text-[10px] text-stone-400 mt-1 leading-tight">
-                    You can also leave this empty and connect Drive anytime later.
-                  </p>
-                </div>
+                {!isScanningDrive && discoveredFiles.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-bold text-teal-900 uppercase tracking-wide">
+                      Select Shared Digest:
+                    </span>
+                    <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto">
+                      {discoveredFiles.map((file) => {
+                        const isSelected = newMemberFileId === file.id;
+                        const ownerName = file.sharingUser?.displayName || file.owners?.[0]?.displayName || 'Loved One';
+                        const ownerEmail = file.sharingUser?.emailAddress || file.owners?.[0]?.emailAddress || '';
+                        return (
+                          <div
+                            key={file.id}
+                            onClick={() => handleSelectDiscoveredFile(file)}
+                            className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer border transition-all text-xs ${
+                              isSelected 
+                                ? 'bg-teal-50 border-teal-500 shadow-xs' 
+                                : 'bg-white border-stone-200 hover:bg-stone-50'
+                            }`}
+                          >
+                            <div className="flex flex-col truncate pr-2">
+                              <span className="font-bold text-stone-900 truncate flex items-center gap-1.5">
+                                <CheckCircle2 size={13} className={isSelected ? 'text-teal-600' : 'text-stone-300'} />
+                                {ownerName}
+                              </span>
+                              {ownerEmail && (
+                                <span className="text-[11px] text-stone-500 truncate pl-4">
+                                  {ownerEmail}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg shrink-0 ${
+                              isSelected ? 'bg-teal-700 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                            }`}>
+                              {isSelected ? 'Connected' : 'Select'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {!isScanningDrive && discoveredFiles.length === 0 && (
+                  <div className="bg-white p-3.5 rounded-xl border border-stone-200 flex flex-col gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 text-stone-700 font-bold text-xs">
+                      <ExternalLink size={14} className="text-stone-500" />
+                      <span>No shared digests found yet</span>
+                    </div>
+                    <p className="text-stone-500 text-[11px] leading-relaxed">
+                      To connect your loved one&apos;s daily health digests:
+                    </p>
+                    <ol className="text-stone-600 text-[11px] list-decimal pl-4 space-y-1 font-medium">
+                      <li>Have them open <strong>Nalama</strong> on their phone or tablet.</li>
+                      <li>In their <strong>Settings</strong>, find <strong>Share Care Digest with Family</strong>.</li>
+                      <li>Add your Google email <span className="font-semibold text-stone-800">({user?.email || 'your-email'})</span>.</li>
+                    </ol>
+                    <p className="text-[10px] text-stone-400 mt-0.5">
+                      You can save this profile now and their updates will link as soon as they share.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-1">
@@ -1054,7 +1079,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                 <button
                   type="submit"
                   disabled={!newMemberName.trim()}
-                  className="flex-[2] py-3 bg-stone-900 hover:bg-black disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  className="flex-[2] py-3 bg-tree-700 hover:bg-tree-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Plus size={14} />
                   <span>Add Loved One</span>
@@ -1072,7 +1097,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-stone-900 text-lg flex items-center gap-2">
                 <Link size={18} className="text-teal-700" />
-                Link Drive Digest
+                Link Care Digest
               </h3>
               <button 
                 onClick={() => setShowLinkModal(false)}
@@ -1083,41 +1108,82 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
             </div>
 
             <p className="text-xs text-stone-500 font-medium leading-relaxed">
-              Connect {activeProfile.name}&apos;s shared <span className="font-semibold">care_digest.json</span> by pasting the Google Drive link or file ID.
+              Connect to {activeProfile.name}&apos;s shared health digest from Google Drive.
             </p>
 
-            <form onSubmit={handleLinkDriveFile} className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs font-bold text-stone-700 mb-1 block">Drive File Link or ID</label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="https://drive.google.com/... or file ID"
-                  value={linkInputVal}
-                  onChange={(e) => setLinkInputVal(e.target.value)}
-                  className="w-full px-3.5 py-3 rounded-xl border border-stone-200 text-xs font-mono text-stone-900 outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-1">
+            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-stone-800">Shared Files in Drive</span>
                 <button
                   type="button"
-                  onClick={() => setShowLinkModal(false)}
-                  className="flex-1 py-3 text-stone-600 font-bold rounded-xl bg-stone-100 hover:bg-stone-200 text-xs transition-colors cursor-pointer"
+                  onClick={handleScanSharedDigests}
+                  disabled={isScanningDrive || !driveState}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLinking || !linkInputVal.trim()}
-                  className="flex-[2] py-3 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <Check size={14} />
-                  <span>{isLinking ? 'Linking...' : 'Connect File'}</span>
+                  <RefreshCw size={12} className={isScanningDrive ? 'animate-spin' : ''} />
+                  <span>{isScanningDrive ? 'Scanning...' : 'Scan'}</span>
                 </button>
               </div>
-            </form>
+
+              {discoveredFiles.length > 0 ? (
+                <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                  {discoveredFiles.map((file) => (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => {
+                        setLinkInputVal(file.id);
+                        const updatedList = profiles.map(p => 
+                          p.id === activeProfile.id 
+                            ? { ...p, sharedDriveFileId: file.id } 
+                            : p
+                        );
+                        updateProfilesList(updatedList);
+                        setShowLinkModal(false);
+                        if (driveState) {
+                          readJsonFile(driveState.token, file.id).then(data => {
+                            if (data && data.schema_version) {
+                              setDigestFileId(file.id);
+                              setDigestContent(data as CareDigestFileContent);
+                            }
+                          });
+                        }
+                      }}
+                      className="p-2.5 bg-white hover:bg-teal-50 border border-stone-200 hover:border-teal-400 rounded-xl flex items-center justify-between text-left transition-colors cursor-pointer"
+                    >
+                      <div className="flex flex-col truncate pr-2">
+                        <span className="font-bold text-stone-900 text-xs truncate">
+                          {file.sharingUser?.displayName || file.owners?.[0]?.displayName || 'Loved One'}
+                        </span>
+                        <span className="text-[10px] text-stone-500 truncate">
+                          {file.sharingUser?.emailAddress || file.owners?.[0]?.emailAddress || ''}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-1 bg-teal-700 text-white rounded-lg shrink-0">
+                        Connect
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-white p-3 rounded-xl border border-stone-200 text-xs text-stone-500 space-y-1">
+                  <p className="font-semibold text-stone-700">No shared digests detected yet.</p>
+                  <p className="text-[11px]">
+                    Ask {activeProfile.name} to add your Google email in their Nalama <strong>Settings &gt; Share Care Digest</strong>.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setShowLinkModal(false)}
+                className="w-full py-3 text-stone-600 font-bold rounded-xl bg-stone-100 hover:bg-stone-200 text-xs transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

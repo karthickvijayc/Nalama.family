@@ -14,7 +14,7 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'nalama.family',
+          name: 'nalama family',
           short_name: 'nalama',
           description: 'Personal Health and Fitness Assistant',
           theme_color: '#F9F7F4',

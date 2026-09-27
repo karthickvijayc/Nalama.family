@@ -28,7 +28,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket } from '../types';
 import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName } from '../lib/drive';
 
-type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general';
+type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
 interface DashboardProps {
   driveState?: DriveState | null;
@@ -40,7 +40,7 @@ interface DashboardProps {
 interface ActivityEntry {
   id: string;
   time: string;
-  category: 'workout' | 'meal' | 'medication' | 'event' | 'general';
+  category: 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
   title: string;
   subtitle: string;
   status?: 'completed' | 'pending';
@@ -369,7 +369,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
           hour: '2-digit',
           minute: '2-digit',
         }),
-        category: l.category as ActivityCategory,
+        category: l.category,
         title: l.headline || (l.category === 'meal' ? 'Meal Log' : l.category === 'workout' ? 'Workout Log' : 'Health Note'),
         subtitle: l.transcript.length > 60 ? l.transcript.substring(0, 60) + '...' : l.transcript,
         status: 'completed' as const,

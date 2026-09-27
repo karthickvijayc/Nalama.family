@@ -134,11 +134,13 @@ export interface Routine {
 
 export interface HealthFact {
   id: string;
-  category: 'medical' | 'diet' | 'fitness';
+  category: 'medical' | 'diet' | 'fitness' | 'routine';
   text: string;
   source: string;
   addedAt: string;
   expiresAt: string | null;
+  frequency?: string;
+  timeBucket?: TimeBucket;
 }
 
 export type CoachingRoomId = 'workout' | 'diet' | 'medical' | 'reflection';

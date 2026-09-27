@@ -6,7 +6,7 @@ if ((globalThis as any).__dirname === ".") {
 import express from "express";
 import http from "http";
 import path from "path";
-import { createServer as createViteServer } from "vite";
+import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
@@ -21,14 +21,14 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Helper to initialize Gemini client safely
-  const getAiClient = () => {
-    const apiKey = process.env.GEMINI_API_KEY;
+  // Helper to initialize Gemini client safely with optional BYOK (Bring Your Own Key)
+  const getAiClient = (userApiKey?: string) => {
+    const apiKey = (userApiKey && userApiKey.trim()) || process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is not configured");
+      throw new Error("No Gemini API key available. Please enter your free personal Gemini API key in Settings (BYOK) or configure GEMINI_API_KEY in server environment.");
     }
     return new GoogleGenAI({
-      apiKey,
+      apiKey: apiKey.trim(),
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build",
@@ -37,20 +37,39 @@ async function startServer() {
     });
   };
 
+  // Helper to extract custom user API key from request headers or body
+  const extractUserApiKey = (req: express.Request): string | undefined => {
+    const headerKey = req.headers["x-gemini-api-key"] as string | undefined;
+    if (headerKey && headerKey.trim()) return headerKey.trim();
+    const bodyKey = req.body?.customGeminiApiKey;
+    if (typeof bodyKey === "string" && bodyKey.trim()) return bodyKey.trim();
+    const profileKey = req.body?.userProfile?.customGeminiApiKey;
+    if (typeof profileKey === "string" && profileKey.trim()) return profileKey.trim();
+    return undefined;
+  };
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
 
-  // Helper to call Gemini models with resilient fallback
+  // Helper to call Gemini models with resilient fallback and custom key support
   const callGeminiWithFallback = async (options: {
     contents: any;
     config?: any;
     systemInstruction?: string;
+    userApiKey?: string;
   }) => {
-    const ai = getAiClient();
-    // Prioritize gemini-3.8-flash, with instant fallback to gemini-3.1-flash-lite and gemini-flash-latest
-    const models = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    const ai = getAiClient(options.userApiKey);
+    const isCustomKey = Boolean(options.userApiKey && options.userApiKey.trim());
+
+    // Prioritize fastest & most cost-effective models with multi-tier fallback
+    const models = [
+      "gemini-3.8-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.1-pro-preview"
+    ];
     let lastError: any = null;
 
     for (const model of models) {
@@ -68,8 +87,33 @@ async function startServer() {
         }
       } catch (err: any) {
         lastError = err;
-        console.warn(`Gemini model ${model} failed, checking fallback:`, err?.message || err);
+        const errMsg = err?.message || String(err);
+        console.warn(`Gemini model ${model} failed:`, errMsg);
+
+        // If credits or quota are exhausted on this key, logging clear notice
+        if (errMsg.includes("prepayment credits are depleted") || errMsg.includes("RESOURCE_EXHAUSTED") || err?.status === 429) {
+          console.error(`[Gemini API] Quota/credits depleted for ${isCustomKey ? "custom user key" : "project server key"}. Model: ${model}.`);
+        }
       }
+    }
+
+    // Format clear user-friendly error message if credits or quotas are depleted
+    const rawErrMsg = lastError?.message || String(lastError);
+    if (rawErrMsg.includes("prepayment credits are depleted") || rawErrMsg.includes("RESOURCE_EXHAUSTED") || lastError?.status === 429) {
+      const quotaErr = new Error(
+        isCustomKey 
+          ? "Your personal Gemini API key has exceeded its quota or requires billing. You can generate a fresh free key at https://aistudio.google.com/apikey and update it in Settings."
+          : "Server Gemini API credits are depleted. Please enter your free personal Gemini API Key in Settings (BYOK) or visit https://aistudio.google.com/apikey to get one in 10 seconds."
+      );
+      (quotaErr as any).status = 429;
+      (quotaErr as any).isQuotaExhausted = true;
+      throw quotaErr;
+    }
+
+    if (rawErrMsg.includes("API key not valid") || rawErrMsg.includes("API_KEY_INVALID")) {
+      const invalidErr = new Error("The provided Gemini API key is invalid. Please verify the key in Settings -> Personal Gemini API Key.");
+      (invalidErr as any).status = 401;
+      throw invalidErr;
     }
 
     throw lastError || new Error("All Gemini models failed to generate a response");
@@ -129,7 +173,7 @@ CRITICAL RULES FOR EVENT INTEGRITY (DO NOT OVER-SPLIT):
       { "category": "medication", "headline": "Daily Vitamins Dose", "timeBucket": "Afternoon", "text": "Took vitamins" }
     ]
 - If the user speaks about a single activity or topic, output exactly 1 item in the "entries" array.
-- In each entry's 'text' field, write a clear, complete statement preserving all specific quantities, numbers, metrics (calories, distance, duration), food names, or dosages.
+- In each entry's 'text' field, write a clear, complete statement preserving all specific quantities, numbers, metrics (calories, distance, duration), food names, or dosages. For complex entries containing multiple parameters, lab markers, scores, or physical measurements (such as body compositions, blood panels, or medical vitals), you MUST format the 'text' field into neat, beautifully spaced sections using bold labels, bullet points (•), and newlines (\n) to group related metrics for easy human scanning.
 - For ANY "meal" category entry (meals, snacks, drinks), if the user does NOT explicitly state the calories, provide your best reasonable estimate for the total calories of that meal in the 'calories' field. If they do explicitly state it, use their number.
 - For ANY "workout" category entry, if the user does NOT explicitly state the calories burned, provide your best reasonable estimate in the 'caloriesBurned' field. If they do explicitly state it, use their number.
 - For ANY "workout" category entry or any physical activity (such as walking, running, cycling, swimming, yoga, sports, gardening, chores), extract or estimate the duration in minutes and provide it as an integer in the 'activeMinutes' field (e.g., "walked for 20 minutes" -> activeMinutes: 20, "1 hour gym session" -> activeMinutes: 60, "walked 3 km" -> activeMinutes: 35).
@@ -143,7 +187,7 @@ Return ONLY valid JSON matching this schema:
       "category": "workout" | "meal" | "medication" | "event" | "general",
       "headline": "2-4 word concise headline",
       "timeBucket": "Morning" | "Afternoon" | "Evening" | "Night",
-      "text": "complete description of this specific item",
+      "text": "complete description of this specific item. Use bold sub-headers, newlines, and bullets (•) to cleanly format and structure entries with multiple metrics or parameters.",
       "calories": 450, // Optional number, add your best guess of calories consumed if category is "meal"
       "caloriesBurned": 200, // Optional number, add your best guess of calories burned if category is "workout"
       "activeMinutes": 20 // Optional number, duration of physical activity in minutes (e.g. 20 for 20 mins walk)
@@ -197,6 +241,7 @@ Return ONLY valid JSON matching this schema:
   app.post("/api/transcribe", async (req, res) => {
     try {
       const { audioBase64, mimeType, clientTime } = req.body;
+      const userApiKey = extractUserApiKey(req);
       if (!audioBase64) {
         return res.status(400).json({ error: "Missing audioBase64 in request body" });
       }
@@ -207,11 +252,12 @@ Return ONLY valid JSON matching this schema:
         cleanMimeType = "audio/webm";
       }
 
-      console.log(`[API /transcribe] Processing audio payload: ${cleanMimeType}, size ~${Math.round(audioBase64.length * 0.75)} bytes`);
+      console.log(`[API /transcribe] Processing audio payload: ${cleanMimeType}, size ~${Math.round(audioBase64.length * 0.75)} bytes (BYOK: ${Boolean(userApiKey)})`);
 
       const currentTimeHint = clientTime || new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: {
           parts: [
             {
@@ -314,6 +360,7 @@ Return ONLY valid JSON matching this schema:
   app.post("/api/classify-text", async (req, res) => {
     try {
       const { text, clientTime } = req.body;
+      const userApiKey = extractUserApiKey(req);
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Missing or invalid text in request body" });
       }
@@ -321,6 +368,7 @@ Return ONLY valid JSON matching this schema:
       const currentTimeHint = clientTime || new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: `Analyze and segment this health note: "${text}". Recording local time: ${currentTimeHint}.`,
         systemInstruction: CLASSIFICATION_SYSTEM_INSTRUCTION,
         config: {
@@ -400,10 +448,130 @@ Return ONLY valid JSON matching this schema:
     }
   });
 
+  // Analyze uploaded health documents and images endpoint
+  app.post("/api/analyze-files", async (req, res) => {
+    try {
+      const { files, clientTime, userProfile } = req.body;
+      const userApiKey = extractUserApiKey(req);
+      if (!Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ error: "Missing or empty files array in request body" });
+      }
+
+      console.log(`[API /analyze-files] Processing ${files.length} documents/images (BYOK: ${Boolean(userApiKey)})`);
+
+      const currentTimeHint = clientTime || new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+      const parts: any[] = [];
+      for (const file of files) {
+        let cleanMimeType = (file.mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+        parts.push({
+          inlineData: {
+            mimeType: cleanMimeType,
+            data: file.base64,
+          },
+        });
+      }
+
+      const userProfileDetails = userProfile ? `
+User Demographic:
+- Name: ${userProfile.nickname || userProfile.displayName || "User"}
+- Goals: ${userProfile.healthGoals || "General wellness"}
+- Notes: ${userProfile.notes || "None"}
+` : "";
+
+      parts.push({
+        text: `Analyze all these uploaded documents and/or images (which might be medical reports, lab reports, DEXA/body composition scans, fitness trackers, meal pictures, blood pressure logs, recipes, exercise logs, or notes).
+Extract any relevant health log entries and group them. Current client local time is: ${currentTimeHint}. ${userProfileDetails}
+
+Your tasks:
+1. Intelligent Multi-Action Segmentation: segment the information into one or more distinct, actionable health logs.
+2. Headlines and Category Selection:
+   - "workout": exercise, active minutes, calories burned.
+   - "meal": foods, calories consumed (estimate if missing).
+   - "medication": pills, doses.
+   - "event": blood pressure, heart rate, symptoms, visits, body composition/DEXA measurements, lab tests.
+   - "general": reflections, sleep.
+3. Keep the text objective, complete, and descriptive. For workouts, estimate activeMinutes and caloriesBurned if appropriate. For meals, estimate calories if appropriate.
+4. Extracted Dates (CRITICAL):
+   - Medical reports, lab tests, body composition scans, doctor visits, and fitness records often have explicit dates (e.g., 'Date of test: 01 Nov 2025', '21 Feb 2026', '20 Aug 2026', '2026-03-15').
+   - You MUST extract the specific date for each entry in ISO 'YYYY-MM-DD' format into the "date" field.
+   - If a document contains comparison tables or multiple dates (such as baseline vs progress vs latest), extract entries for the different dates and assign each entry its corresponding 'date' (YYYY-MM-DD)!
+   - If an entry has no date mentioned anywhere in the document, set "date": null.
+5. Beautiful, Structured Formatting (CRITICAL for Human Readability):
+   - Long unstructured streams or paragraphs of text are hard for humans to scan.
+   - For entries containing multiple parameters, lab markers, vital scores, or scan metrics (such as body compositions, blood panels, or medical vitals), you MUST format the "text" field into well-organized, neat, and beautifully spaced sections using bold labels, newlines (\\n), and bullet points (•).
+   - Group related measurements logically under descriptive bold sub-headers.
+   - Example style for complex scans/reports:
+     **Body Composition Summary**:
+     • Weight: 97.5 kg
+     • Total Body Fat: 32.6% (31.8 kg)
+     • Skeletal Muscle Mass: 36.1 kg
+     • Lean Body Mass: 65.7 kg
+     • Visceral Fat Level: 15 (Area: 171 cm²)
+
+     **Health Indicators**:
+     • Biological Age: 42
+     • BWI Score: 6.0/10
+     • BMR: 1789 kcal
+     • Abdominal Circumference: 109.3 cm
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "summary": "1-2 sentence overall summary of files",
+  "entries": [
+    {
+      "category": "workout" | "meal" | "medication" | "event" | "general",
+      "headline": "2-4 word concise headline",
+      "timeBucket": "Morning" | "Afternoon" | "Evening" | "Night",
+      "date": "YYYY-MM-DD", // Explicit date of the test/event if mentioned (e.g. "2025-11-01" or "2026-08-20"), or null if not mentioned
+      "text": "highly structured and readable objective description of this specific item. Use bold category headers, spacing, newlines (\\n), and bullet points (•) for lists of multiple metrics/parameters.",
+      "calories": 450, // Optional estimated calories consumed for meals
+      "caloriesBurned": 200, // Optional estimated calories burned for workouts
+      "activeMinutes": 20 // Optional estimated active minutes for workouts
+    }
+  ]
+}`
+      });
+
+      const result = await callGeminiWithFallback({
+        userApiKey,
+        contents: { parts },
+        systemInstruction: CLASSIFICATION_SYSTEM_INSTRUCTION,
+        config: {
+          responseMimeType: "application/json",
+        },
+      });
+
+      console.log(`[API /analyze-files] Success with model: ${result.model}`);
+
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(result.text);
+      } catch (parseErr) {
+        console.error("Failed to parse Gemini output as JSON inside analyze-files:", result.text);
+        parsed = {
+          summary: "Error parsing structured items.",
+          entries: [{ category: "general", headline: "Analyzed Document", text: result.text, timeBucket: "Morning" }]
+        };
+      }
+
+      res.json({
+        summary: parsed.summary || "Documents analyzed successfully.",
+        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+        model: result.model
+      });
+
+    } catch (err: any) {
+      console.error("[API /analyze-files] Error:", err);
+      res.status(500).json({ error: err.message || "Failed to analyze files" });
+    }
+  });
+
   // Autonomous Context Extraction endpoint
   app.post("/api/extract-context", async (req, res) => {
     try {
       const { facts, newLog, newLogs, userProfile } = req.body;
+      const userApiKey = extractUserApiKey(req);
       if (!Array.isArray(facts)) {
         return res.status(400).json({ error: "Missing facts array in request body" });
       }
@@ -464,6 +632,7 @@ Instructions:
 5. Return ONLY the final, complete, updated JSON array of facts. Do not wrap in markdown \`\`\`json blocks. Do not add any conversational text. ONLY output the raw JSON array.`;
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         config: {
           responseMimeType: "application/json",
@@ -490,6 +659,7 @@ Instructions:
   app.post("/api/generate-digest", async (req, res) => {
     try {
       const { facts, recentLogs, profileName, userProfile } = req.body;
+      const userApiKey = extractUserApiKey(req);
       const memberName = profileName || (userProfile?.nickname || userProfile?.displayName) || "Family Member";
 
       const profileDetailsStr = userProfile ? `
@@ -540,6 +710,7 @@ Return ONLY a valid JSON object matching this schema:
 Include 2 to 4 appropriate metric items reflecting the actual activities, meals, or medications mentioned.`;
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         config: {
           responseMimeType: "application/json",
@@ -578,6 +749,7 @@ Include 2 to 4 appropriate metric items reflecting the actual activities, meals,
   app.post("/api/generate-insights", async (req, res) => {
     try {
       const { logs, facts, userProfile } = req.body;
+      const userApiKey = extractUserApiKey(req);
       const userName = userProfile?.nickname || userProfile?.displayName || "User";
 
       const profileStr = userProfile ? `
@@ -622,6 +794,7 @@ Return ONLY valid JSON matching this schema:
 Ensure the achievements and suggested routines are directly relevant to their actual logged data. Keep tone warm, encouraging, and actionable.`;
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",
@@ -652,7 +825,8 @@ Ensure the achievements and suggested routines are directly relevant to their ac
   // Specialized Coaching Room Chat endpoint with contextual memory & recent logs
   app.post("/api/coaching-chat", async (req, res) => {
     try {
-      const { roomId, message, conversationHistory, facts, recentLogs, userProfile } = req.body;
+      const { roomId, message, conversationHistory, facts, recentLogs, userProfile, bridgeContext } = req.body;
+      const userApiKey = extractUserApiKey(req);
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Missing message string in request body" });
       }
@@ -699,13 +873,18 @@ User Demographics & Baseline:
         ? `\nRecent Activity & Health Logs:\n${JSON.stringify(recentLogs.slice(0, 15), null, 2)}` 
         : "\nNo recent activity logs available.";
 
-      const systemInstruction = `${baseRoomInstruction}
+      let systemInstruction = `${baseRoomInstruction}
 
 ${profileStr}
 ${factsStr}
 ${logsStr}
+`;
 
-CRITICAL COACHING RULES:
+      if (bridgeContext) {
+        systemInstruction += `\n\nCONTINUING ACTIVE CHAT TOPIC (Bridge Context):\nThe user started a new chat thread to avoid context saturation but wants to continue the previous topic. Focus on this current active topic summary and ground your responses in these details:\n${bridgeContext}\n`;
+      }
+
+      systemInstruction += `\n\nCRITICAL COACHING RULES:
 1. Address the user directly as ${userName} where natural.
 2. Ground your advice explicitly in their verified health facts, target numbers, and recent logs (e.g. mention their logged workouts, active minutes, meals, or medication routines when answering).
 3. Keep answers concise, high-impact, actionable, and formatted nicely in conversational paragraphs with bullet points for steps or options.
@@ -732,6 +911,7 @@ CRITICAL COACHING RULES:
       });
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: formattedContents,
         systemInstruction,
       });
@@ -752,6 +932,7 @@ CRITICAL COACHING RULES:
   app.post("/api/calculate-targets", async (req, res) => {
     try {
       const { userProfile, facts } = req.body;
+      const userApiKey = extractUserApiKey(req);
 
       const profileDetails = `
 User Health Profile & Demographics:
@@ -799,6 +980,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
       const result = await callGeminiWithFallback({
+        userApiKey,
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         config: {
           responseMimeType: "application/json",
@@ -833,8 +1015,29 @@ Return ONLY valid JSON matching this schema:
     }
   });
 
-  // Vite middleware for development
+  // Key validation endpoint for user BYOK testing
+  app.post("/api/test-gemini-key", async (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      const keyToTest = (typeof apiKey === "string" && apiKey.trim()) || extractUserApiKey(req);
+      if (!keyToTest) {
+        return res.status(400).json({ error: "Missing API key to validate" });
+      }
+
+      const result = await callGeminiWithFallback({
+        userApiKey: keyToTest,
+        contents: "Respond with the word: Validated",
+      });
+
+      res.json({ success: true, message: "Gemini API key is active and working perfectly!", model: result.model });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message || "Failed to validate Gemini API key" });
+    }
+  });
+
+  // Vite middleware for development vs static asset serving in production
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { 
         middlewareMode: true,
@@ -844,15 +1047,21 @@ Return ONLY valid JSON matching this schema:
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.resolve(process.cwd(), "dist");
+    const indexPath = path.join(distPath, "index.html");
+    
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send("Application build not found. Please verify npm run build succeeded.");
+      }
     });
   }
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   });
 }
 

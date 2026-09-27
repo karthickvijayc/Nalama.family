@@ -1,16 +1,7 @@
 import { Calendar, ArrowLeft, Plus, Edit3, Trash2, Stethoscope, Utensils, Dumbbell, Clock, Infinity as InfinityIcon, Save, X, Loader2 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { readJsonFile, writeJsonFile } from '../lib/drive';
-import { DriveState } from '../App';
-
-export interface HealthFact {
-  id: string;
-  category: 'medical' | 'diet' | 'fitness';
-  text: string;
-  source: string;
-  addedAt: string;
-  expiresAt: string | null;
-}
+import { DriveState, HealthFact } from '../types';
 
 export default function HealthProfile({ onBack, driveState }: { onBack: () => void, driveState: DriveState | null }) {
   const [facts, setFacts] = useState<HealthFact[]>([]);

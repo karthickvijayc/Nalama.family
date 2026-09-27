@@ -1,0 +1,80 @@
+name: Build CI & Deploy to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_REGION: ${{ secrets.GCP_REGION || 'asia-southeast1' }}
+  GAR_REPO: ${{ secrets.GCP_GAR_REPOSITORY || 'nalama-family' }}
+  SERVICE_NAME: ${{ secrets.GCP_CLOUDRUN_SERVICE || 'nalama-family' }}
+  IMAGE_NAME: nalama-family
+
+jobs:
+  build-and-deploy:
+    name: Build, Containerize & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install & Run CI Validation
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GAR_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Container
+        run: |
+          IMAGE_TAG="${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          LATEST_TAG="${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME }}:latest"
+          
+          docker build -t "$IMAGE_TAG" -t "$LATEST_TAG" .
+          docker push "$IMAGE_TAG"
+          docker push "$LATEST_TAG"
+
+      - name: Deploy to Google Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.GAR_REGION }}
+          image: ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          flags: |
+            --port=3000
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=5
+            --memory=512Mi
+            --cpu=1
+          env_vars: |
+            NODE_ENV=production
+          secrets: |
+            GEMINI_API_KEY=GEMINI_API_KEY:latest
+
+      - name: Output Service URL
+        run: |
+          echo "🚀 Successfully deployed to Google Cloud Run!"
+          echo "URL: ${{ steps.deploy.outputs.url }}"

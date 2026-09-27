@@ -26,11 +26,14 @@ import {
 } from 'lucide-react';
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
+import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
+import { useRegionalVariant } from '../context/RegionalVariantContext';
 
 interface VoiceRecorderButtonProps {
   driveState: DriveState | null;
   onLogSaved?: () => void;
   visible?: boolean;
+  standalone?: boolean;
 }
 
 type RecordingState = 'idle' | 'recording' | 'transcribing' | 'review' | 'saving' | 'extracting' | 'generating_digest' | 'extraction_error' | 'success';
@@ -92,7 +95,8 @@ function getLocalTimeBucket(text?: string, dateOrTime?: Date | string | number):
   return 'Night';
 }
 
-export default function VoiceRecorderButton({ driveState, onLogSaved, visible = true }: VoiceRecorderButtonProps) {
+export default function VoiceRecorderButton({ driveState, onLogSaved, visible = true, standalone = false }: VoiceRecorderButtonProps) {
+  const { variant } = useRegionalVariant();
   const [modalState, setModalState] = useState<RecordingState>('idle');
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcript, setTranscript] = useState('');
@@ -100,6 +104,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
   const [isClassifying, setIsClassifying] = useState(false);
   const [showRawTranscript, setShowRawTranscript] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showHoldHelp, setShowHoldHelp] = useState(false);
+  const holdTimerRef = useRef<any>(null);
   
   // Audio playback state for review
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -110,6 +116,18 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
   const timerIntervalRef = useRef<any>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const latestEntriesRef = useRef<HealthLogEntry[]>([]);
+
+  const handleHoldStart = () => {
+    holdTimerRef.current = setTimeout(() => {
+      setShowHoldHelp(true);
+    }, 350);
+  };
+
+  const handleHoldEnd = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+    }
+  };
 
   // Clean up on unmount
   useEffect(() => {
@@ -255,11 +273,15 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       const localTimeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const response = await fetch('/api/transcribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getGeminiApiKeyHeader()
+        },
         body: JSON.stringify({
           audioBase64: base64Audio,
           mimeType: recordedMimeType,
-          clientTime: localTimeStr
+          clientTime: localTimeStr,
+          primaryLanguage: variant.language
         })
       });
 
@@ -355,8 +377,11 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       const localTimeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const response = await fetch('/api/classify-text', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: combinedText, clientTime: localTimeStr })
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getGeminiApiKeyHeader()
+        },
+        body: JSON.stringify({ text: combinedText, clientTime: localTimeStr, primaryLanguage: variant.language })
       });
 
       if (!response.ok) {
@@ -439,7 +464,10 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       // 2. Call API with all new entries & userProfile context
       const res = await fetch('/api/extract-context', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getGeminiApiKeyHeader()
+        },
         body: JSON.stringify({ facts: currentFacts, newLogs: entries, userProfile })
       });
       
@@ -460,7 +488,10 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         const preferredName = userProfile?.nickname || userProfile?.displayName || 'Family Member';
         const digestRes = await fetch('/api/generate-digest', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...getGeminiApiKeyHeader()
+          },
           body: JSON.stringify({
             facts: updatedFacts,
             recentLogs: entries,
@@ -602,18 +633,57 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
     <>
       {/* Floating Trigger Button (when idle and visible) */}
       {visible && modalState === 'idle' && (
-        <div className="fixed bottom-24 left-0 right-0 flex justify-center pointer-events-none px-6 z-40">
+        <div className="relative">
+          {/* Help Tooltip shown on Press & Hold or Hover */}
+          {showHoldHelp && (
+            <div className="absolute bottom-full right-0 mb-3 w-64 p-3.5 bg-gradient-to-br from-[#1E2E25] via-[#17261E] to-[#121E17] text-stone-100 text-xs rounded-2xl shadow-2xl border border-tree-600/40 z-50 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <p className="font-bold text-white text-xs tracking-wide">Add Health Entry</p>
+                  </div>
+                  <p className="text-stone-300 text-[11px] leading-relaxed">
+                    Speak naturally in your preferred language to log meals, workouts, medications, vitals, or health thoughts. AI transcribes and formats everything.
+                  </p>
+                </div>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowHoldHelp(false);
+                  }}
+                  className="text-stone-400 hover:text-white p-0.5 cursor-pointer shrink-0"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="w-2.5 h-2.5 bg-[#121E17] rotate-45 absolute -bottom-1 right-6 border-r border-b border-tree-600/40" />
+            </div>
+          )}
+
           <button 
             onClick={startRecording}
-            className="pointer-events-auto flex items-center gap-4 bg-gradient-to-r from-tree-700 via-tree-600 to-tree-700 hover:from-tree-800 hover:to-tree-700 active:scale-95 text-white rounded-full pl-6 pr-8 py-4 shadow-xl shadow-tree-900/25 transition-all group border border-tree-500/30"
+            onPointerDown={handleHoldStart}
+            onPointerUp={handleHoldEnd}
+            onPointerCancel={handleHoldEnd}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setShowHoldHelp(true);
+            }}
+            onMouseEnter={() => setShowHoldHelp(true)}
+            onMouseLeave={() => {
+              handleHoldEnd();
+              setShowHoldHelp(false);
+            }}
+            className="flex items-center gap-2.5 sm:gap-3 bg-gradient-to-r from-tree-700 via-tree-600 to-tree-700 hover:from-tree-800 hover:to-tree-700 active:scale-95 text-white rounded-full pl-3.5 pr-4.5 sm:pl-4 sm:pr-5 py-3 sm:py-3.5 shadow-xl shadow-tree-900/25 transition-all group border border-tree-500/30 cursor-pointer"
             aria-label="Add Voice Entry"
           >
-            <div className="bg-white/20 p-3 rounded-full group-hover:bg-white/30 transition-colors">
-              <Mic size={32} />
+            <div className="bg-white/20 p-2 sm:p-2.5 rounded-full group-hover:bg-white/30 transition-colors">
+              <Mic size={18} className="sm:w-5 sm:h-5 text-white" />
             </div>
             <div className="flex flex-col items-start text-left">
-              <span className="font-bold text-xl leading-tight">Add Entry</span>
-              <span className="text-xs font-semibold text-tree-100/90 tracking-wide">English • தமிழ் • हिन्दी</span>
+              <span className="font-bold text-sm sm:text-base leading-tight">Add Entry</span>
+              <span className="text-[10px] font-semibold text-tree-100/90 tracking-wide">{variant.addEntryLanguagesLabel}</span>
             </div>
           </button>
         </div>
@@ -653,7 +723,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
 
             {/* Prompt Helper */}
             <p className="text-stone-500 text-sm font-medium text-center max-w-xs leading-relaxed">
-              Speak naturally in English, தமிழ், or हिन्दी.<br />
+              Speak naturally in {variant.voicePromptLabel}.<br />
               <span className="text-stone-700 font-semibold">Mention multiple things</span> (e.g. &ldquo;Ran 20 mins, had idly for lunch, took vitamins&rdquo;).
             </p>
 
@@ -911,47 +981,68 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
                 </button>
               </div>
 
-              {reviewEntries.map((entry, idx) => (
-                <div 
-                  key={entry.id} 
-                  className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 flex flex-col gap-2.5 transition-all hover:border-stone-300"
-                >
-                  {/* Category Pill Selector Bar */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      {categoryOptions.map(cat => {
-                        const isSelected = entry.category === cat.key;
-                        return (
-                          <button
-                            key={cat.key}
-                            type="button"
-                            onClick={() => updateEntryCategory(entry.id, cat.key)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                              isSelected
-                                ? cat.activeColor + ' shadow-xs'
-                                : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
-                            }`}
-                          >
-                            {cat.icon}
-                            <span>{cat.label}</span>
-                          </button>
-                        );
-                      })}
+              {reviewEntries.map((entry, idx) => {
+                const isReady = !!(entry.headline && entry.headline.trim().length > 0 && entry.text && entry.text.trim().length > 3);
+                return (
+                  <div 
+                    key={entry.id} 
+                    className={`p-5 rounded-2xl border flex flex-col gap-3.5 transition-all shadow-xs ${
+                      isReady 
+                        ? 'bg-tree-50/10 border-tree-200 hover:border-tree-300 shadow-tree-100/5' 
+                        : 'bg-sky-50/15 border-sky-200 hover:border-sky-300 shadow-sky-100/5'
+                    }`}
+                  >
+                    {/* Status Indicator Bar */}
+                    <div className="flex items-center justify-between border-b border-stone-100/80 pb-2.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                        Item #{idx + 1}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full select-none ${
+                        isReady 
+                          ? 'bg-tree-100/85 text-tree-800' 
+                          : 'bg-sky-100/85 text-sky-800'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-tree-600' : 'bg-sky-600'}`} />
+                        {isReady ? 'Ready & Verified' : 'Review Required'}
+                      </span>
                     </div>
 
-                    {/* Delete item button if more than 1 item */}
-                    {reviewEntries.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeEntry(entry.id)}
-                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
-                        title="Remove this item"
-                        aria-label="Remove item"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    )}
-                  </div>
+                    {/* Category Pill Selector Bar */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {categoryOptions.map(cat => {
+                          const isSelected = entry.category === cat.key;
+                          return (
+                            <button
+                              key={cat.key}
+                              type="button"
+                              onClick={() => updateEntryCategory(entry.id, cat.key)}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                isSelected
+                                  ? cat.activeColor + ' shadow-xs'
+                                  : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
+                              }`}
+                            >
+                              {cat.icon}
+                              <span>{cat.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Delete item button if more than 1 item */}
+                      {reviewEntries.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEntry(entry.id)}
+                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                          title="Remove this item"
+                          aria-label="Remove item"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
 
                   {/* Headline & Time Bucket Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1047,7 +1138,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
                     </div>
                   )}
                 </div>
-              ))}
+              );
+            })}
 
               {/* Add item button */}
               <button

@@ -16,17 +16,31 @@
   --color-tree-900: #114028;
   --color-tree-950: #092416;
 
-  /* Family Canopy Sky Blue (From Tree Logo figures and upper canopy) */
-  --color-canopy-50: #edf6fb;
-  --color-canopy-100: #d6ecf8;
-  --color-canopy-200: #b2dbf2;
-  --color-canopy-300: #7ebfe8;
-  --color-canopy-400: #489fdb;
-  --color-canopy-500: #358ec2;
-  --color-canopy-600: #2674a5;
-  --color-canopy-700: #1f5c83;
-  --color-canopy-800: #1b4d6d;
-  --color-canopy-900: #1b415a;
+  /* Family Canopy / Peacock Blue (Matched to deeper 'family' in updated logo: #1b7cb2) */
+  --color-canopy-50: #eff6fb;
+  --color-canopy-100: #dbeef6;
+  --color-canopy-200: #bce0ee;
+  --color-canopy-300: #8cc7e0;
+  --color-canopy-400: #4fa8cd;
+  --color-canopy-500: #2b8eb9;
+  --color-canopy-600: #1b7cb2;
+  --color-canopy-700: #166491;
+  --color-canopy-800: #155478;
+  --color-canopy-900: #164663;
+  --color-canopy-950: #0e2d42;
+
+  /* Align sky to the deeper canopy family blue for unified brand consistency */
+  --color-sky-50: #eff6fb;
+  --color-sky-100: #dbeef6;
+  --color-sky-200: #bce0ee;
+  --color-sky-300: #8cc7e0;
+  --color-sky-400: #4fa8cd;
+  --color-sky-500: #2b8eb9;
+  --color-sky-600: #1b7cb2;
+  --color-sky-700: #166491;
+  --color-sky-800: #155478;
+  --color-sky-900: #164663;
+  --color-sky-950: #0e2d42;
 
   /* Natural Teal mapping to harmonious Tree Emerald */
   --color-teal-50: #edf7f1;

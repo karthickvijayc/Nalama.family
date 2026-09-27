@@ -14,6 +14,7 @@ import {
   Sparkles,
   Save,
   Scale,
+  Dumbbell,
   Ruler,
   Activity,
   Heart,
@@ -28,12 +29,26 @@ import {
   BookOpen,
   FolderSync,
   ChevronRight,
-  Database
+  ChevronDown,
+  ChevronUp,
+  Database,
+  Key,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Sliders,
+  Smartphone,
+  Download,
+  FileSpreadsheet,
+  Copy
 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { getFolderPermissions, addFolderPermission, removeFolderPermission } from '../lib/drive';
 import { DriveState, UserProfile, UserTargets } from '../types';
+import { getCustomGeminiApiKey, setCustomGeminiApiKey, getAiFetchHeaders } from '../lib/geminiApiKey';
 import { User as FirebaseUser } from 'firebase/auth';
+import { useRegionalVariant } from '../context/RegionalVariantContext';
+import { COMPANION_APP_INFO, UNIVERSAL_APPS_SCRIPT_CODE } from '../lib/companionConstants';
 
 interface SettingsProps {
   onLogout?: () => void;
@@ -44,6 +59,29 @@ interface SettingsProps {
   onTriggerManualSync?: () => Promise<void> | void;
   isSyncingExternal?: boolean;
   onOpenDeveloperGuide?: () => void;
+  onOpenLegal?: (tab: 'privacy' | 'terms') => void;
+  onResetAllContext?: () => Promise<void>;
+}
+
+function CircularScaleIcon({ size = 13, className = "text-stone-400" }: { size?: number; className?: string }) {
+  return (
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className={className}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="7.5" r="2.5" strokeWidth="1.5" />
+      <path d="M12 6.5v1.5" strokeWidth="1.5" />
+      <path d="M8 16.5c0-1.5 1.5-2.5 4-2.5s4 1 4 2.5" strokeWidth="1.5" />
+    </svg>
+  );
 }
 
 export default function Settings({ 
@@ -54,11 +92,26 @@ export default function Settings({
   onUpdateProfile,
   onTriggerManualSync,
   isSyncingExternal = false,
-  onOpenDeveloperGuide
+  onOpenDeveloperGuide,
+  onOpenLegal,
+  onResetAllContext
 }: SettingsProps) {
+  const { variant, setVariantId, allVariants, syncWithProfileLanguage } = useRegionalVariant();
+
+  // Reset all context state
+  const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
+  const [isResettingAll, setIsResettingAll] = useState(false);
+
   // External data import toggle state
   const [enableExternalImport, setEnableExternalImport] = useState(userProfile?.enableExternalDataImport || false);
   const [isTogglingImport, setIsTogglingImport] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  const handleCopyAppsScript = () => {
+    navigator.clipboard.writeText(UNIVERSAL_APPS_SCRIPT_CODE);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 2500);
+  };
 
   // Caregiver sharing state
   const [isAdding, setIsAdding] = useState(false);
@@ -88,6 +141,14 @@ export default function Settings({
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isCalculatingAiTargets, setIsCalculatingAiTargets] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
+  const [showRegionalVariantSelector, setShowRegionalVariantSelector] = useState(false);
+
+  // BYOK (Bring Your Own Gemini API Key) state
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState(() => getCustomGeminiApiKey() || userProfile?.customGeminiApiKey || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeySaveStatus, setApiKeySaveStatus] = useState<string | null>(null);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [keyTestResult, setKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Keep form in sync when userProfile updates
   useEffect(() => {
@@ -118,6 +179,31 @@ export default function Settings({
     }
   }, [userProfile]);
 
+  // Auto-expand advanced settings if URL hash targets any inner anchor
+  useEffect(() => {
+    const handleHashCheck = () => {
+      const hash = window.location.hash;
+      if (
+        hash === '#settings-gemini-byok-section' ||
+        hash === '#settings-advanced-section' ||
+        hash === '#settings-drive-storage' ||
+        hash === '#settings-account-section'
+      ) {
+        const details = document.getElementById('advanced-settings-details') as HTMLDetailsElement | null;
+        if (details) {
+          details.open = true;
+          const target = document.getElementById(hash.slice(1));
+          if (target) {
+            setTimeout(() => target.scrollIntoView({ behavior: 'smooth' }), 100);
+          }
+        }
+      }
+    };
+    handleHashCheck();
+    window.addEventListener('hashchange', handleHashCheck);
+    return () => window.removeEventListener('hashchange', handleHashCheck);
+  }, []);
+
   const handleToggleExternalImport = async (checked: boolean) => {
     setEnableExternalImport(checked);
     if (!onUpdateProfile) return;
@@ -140,7 +226,7 @@ export default function Settings({
     try {
       const res = await fetch('/api/calculate-targets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiFetchHeaders(),
         body: JSON.stringify({ userProfile: profileData })
       });
       if (res.ok) {
@@ -153,6 +239,69 @@ export default function Settings({
       console.warn('Could not calculate AI targets:', err);
     }
     return null;
+  };
+
+  const handleSaveApiKey = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanKey = geminiApiKeyInput.trim();
+    setCustomGeminiApiKey(cleanKey);
+    setKeyTestResult(null);
+
+    // Save to userProfile in Google Drive if profile updater exists
+    if (onUpdateProfile) {
+      try {
+        const updated: UserProfile = {
+          ...userProfile,
+          customGeminiApiKey: cleanKey || undefined,
+          updatedAt: new Date().toISOString()
+        };
+        await onUpdateProfile(updated);
+      } catch (err) {
+        console.warn('Could not persist API key to Drive profile:', err);
+      }
+    }
+
+    setApiKeySaveStatus(cleanKey ? 'Saved to local device and encrypted memory.' : 'Cleared custom API key. Using app default.');
+    setTimeout(() => setApiKeySaveStatus(null), 4000);
+  };
+
+  const handleTestApiKey = async () => {
+    const keyToTest = geminiApiKeyInput.trim();
+    if (!keyToTest) {
+      setKeyTestResult({ success: false, message: 'Please enter an API key to test.' });
+      return;
+    }
+
+    setIsTestingKey(true);
+    setKeyTestResult(null);
+
+    try {
+      const res = await fetch('/api/test-gemini-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: keyToTest })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setKeyTestResult({
+          success: true,
+          message: `Connected successfully! (${data.model || 'Gemini 2.5 Flash'})`
+        });
+      } else {
+        setKeyTestResult({
+          success: false,
+          message: data.error || 'Key validation failed. Please check permissions in Google AI Studio.'
+        });
+      }
+    } catch (err: any) {
+      setKeyTestResult({
+        success: false,
+        message: err.message || 'Network error while validating key.'
+      });
+    } finally {
+      setIsTestingKey(false);
+    }
   };
 
   const handleManualCalculateAi = async () => {
@@ -310,6 +459,20 @@ export default function Settings({
     }
   };
 
+  const handleExecuteResetAll = async () => {
+    if (!onResetAllContext) return;
+    setIsResettingAll(true);
+    try {
+      await onResetAllContext();
+      setShowResetAllConfirm(false);
+    } catch (err) {
+      console.error('Failed to reset all context:', err);
+      alert('Failed to reset context. Please try again.');
+    } finally {
+      setIsResettingAll(false);
+    }
+  };
+
   const googleDisplayName = user?.displayName || userProfile?.displayName || 'Google Account User';
   const googleEmail = user?.email || userProfile?.email || 'Connected via Google Drive';
   const userPhoto = user?.photoURL || userProfile?.photoURL;
@@ -333,10 +496,6 @@ export default function Settings({
             <User size={22} className="text-teal-700" />
             <h2 className="text-xl font-bold text-stone-900">Personal Health Profile</h2>
           </div>
-          <span className="text-xs font-bold uppercase tracking-wider bg-canopy-50 text-canopy-800 border border-canopy-200/80 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-            <Sparkles size={12} className="text-canopy-600" />
-            LLM Context
-          </span>
         </div>
 
         <p className="text-sm font-medium text-stone-500 px-1 leading-relaxed">
@@ -348,18 +507,18 @@ export default function Settings({
             <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
             <div className="flex flex-col">
               <span className="font-bold text-sm">Profile updated in Google Drive!</span>
-              <span className="text-xs text-emerald-700">Home page greeting and LLM context will now use your preferred details.</span>
+              <span className="text-xs text-emerald-700">Home page greeting and health context will now use your preferred details.</span>
             </div>
           </div>
         )}
 
         <form onSubmit={handleSaveProfile} className="bg-white rounded-[2rem] border border-stone-200 shadow-sm p-6 flex flex-col gap-5">
-          {/* Read-Only Google Account Credentials Card */}
+          {/* Google Account Credentials Card */}
           <div className="bg-stone-50/90 rounded-2xl p-4 border border-stone-200/80 flex flex-col gap-3">
             <div className="flex items-center">
               <span className="text-xs font-extrabold tracking-wider uppercase text-stone-500 flex items-center gap-1.5">
                 <Lock size={13} className="text-stone-400" />
-                Google Drive Account (Read-Only)
+                Google Drive Account
               </span>
             </div>
 
@@ -386,22 +545,15 @@ export default function Settings({
                 </span>
               </div>
             </div>
-
-            <p className="text-[11px] text-stone-400 font-medium border-t border-stone-200/60 pt-2">
-              Name and email are pulled directly from your active Google Drive sign-in session.
-            </p>
           </div>
 
-          {/* Editable LLM Context Fields */}
+          {/* Editable Personal Details Fields */}
           <div className="flex flex-col gap-4 pt-1">
-            {/* Nick Name / Preferred Greeting */}
+            {/* Preferred Name */}
             <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-baseline">
-                <label className="text-xs font-bold text-stone-700 uppercase tracking-wide">
-                  Preferred Nickname
-                </label>
-                <span className="text-[11px] text-teal-700 font-medium">Used for Home greeting & Caregiver Digest</span>
-              </div>
+              <label className="text-xs font-bold text-stone-700 uppercase tracking-wide">
+                Preferred Name
+              </label>
               <input 
                 type="text"
                 value={nickname}
@@ -409,9 +561,6 @@ export default function Settings({
                 placeholder="e.g. Amma, Karthik, Dad, Lakshmi"
                 className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm"
               />
-              <p className="text-[11px] text-stone-400">
-                If provided, Nalama will greet you as "{nickname.trim() || 'Nickname'}" on the home screen instead of your full Google Account name.
-              </p>
             </div>
 
             {/* Age & Gender */}
@@ -421,7 +570,7 @@ export default function Settings({
                   Age
                 </label>
                 <input 
-                  type="number"
+                  type="number" 
                   min="1"
                   max="120"
                   value={age}
@@ -458,7 +607,7 @@ export default function Settings({
                   <span>Height</span>
                 </div>
                 <input 
-                  type="text"
+                  type="text" 
                   value={height}
                   onChange={(e) => setHeight(e.target.value)}
                   placeholder="e.g. 5 ft 8 in / 172 cm"
@@ -468,11 +617,11 @@ export default function Settings({
 
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-1 text-xs font-bold text-stone-700 uppercase tracking-wide">
-                  <Scale size={13} className="text-stone-400" />
+                  <CircularScaleIcon size={13} className="text-stone-400" />
                   <span>Weight</span>
                 </div>
                 <input 
-                  type="text"
+                  type="text" 
                   value={weight}
                   onChange={(e) => setWeight(e.target.value)}
                   placeholder="e.g. 68 kg / 150 lbs"
@@ -538,17 +687,83 @@ export default function Settings({
                 </div>
                 <select 
                   value={primaryLanguage}
-                  onChange={(e) => setPrimaryLanguage(e.target.value)}
+                  onChange={(e) => {
+                    const newLang = e.target.value;
+                    setPrimaryLanguage(newLang);
+                    syncWithProfileLanguage(newLang, true);
+                  }}
                   className="w-full px-3.5 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm"
                 >
                   <option value="English">English</option>
                   <option value="Tamil">Tamil (தமிழ் / Tanglish)</option>
                   <option value="Hindi">Hindi (हिंदी / Hinglish)</option>
-                  <option value="Telugu">Telugu</option>
+                  <option value="Telugu">Telugu (తెలుగు)</option>
+                  <option value="Malayalam">Malayalam (മലയാളം)</option>
                   <option value="Kannada">Kannada</option>
-                  <option value="Malayalam">Malayalam</option>
                   <option value="Other">Other</option>
                 </select>
+
+                {/* Regional Variant Quick Switcher & Active URL Indicator - Collapsible */}
+                <div className="mt-2.5 p-3.5 bg-white border border-stone-200/90 rounded-2xl flex flex-col gap-2.5">
+                  <div 
+                    className="flex items-center justify-between cursor-pointer select-none"
+                    onClick={() => setShowRegionalVariantSelector(prev => !prev)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-stone-50 p-0.5 overflow-hidden flex items-center justify-center border border-stone-200">
+                        <img src={variant.logoSrc} alt={variant.brandName} className="w-full h-full object-contain" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-stone-800 capitalize">Nalama Family Regional Variant</span>
+                        <span className="text-[10px] text-stone-500 font-medium">{variant.brandWordCapitalized} ({variant.nativeName}) • /{variant.defaultUrlSlug}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="p-1 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-100 transition-colors cursor-pointer"
+                      aria-label="Toggle regional variant switcher"
+                    >
+                      {showRegionalVariantSelector ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                  </div>
+
+                  {showRegionalVariantSelector && (
+                    <div className="flex flex-col gap-2 pt-2 border-t border-stone-100 animate-in fade-in duration-200">
+                      <div className="text-[11px] text-stone-500 leading-snug">
+                        Regional variant updates the logo, title, URL slug, and language tags:
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-0.5">
+                        {allVariants.map((v) => {
+                          const isSelected = v.id === variant.id;
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => {
+                                setPrimaryLanguage(v.language);
+                                setVariantId(v.id, true);
+                              }}
+                              className={`flex items-center gap-2 p-2 rounded-xl text-left border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'border-tree-600 bg-tree-50/70 text-tree-900 shadow-2xs ring-1 ring-tree-500'
+                                  : 'border-stone-200 hover:border-stone-300 bg-stone-50/50 text-stone-700'
+                              }`}
+                            >
+                              <div className="w-7 h-7 rounded-lg bg-white p-0.5 border border-stone-200/60 shrink-0 flex items-center justify-center">
+                                <img src={v.logoSrc} alt={v.brandName} className="w-full h-full object-contain" />
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-bold leading-tight truncate">{v.brandWordCapitalized}</span>
+                                <span className="text-[10px] text-stone-500 font-medium leading-tight">{v.nativeName}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -558,13 +773,30 @@ export default function Settings({
                 <Heart size={13} className="text-stone-400" />
                 <span>Health Goals & Focus Areas</span>
               </div>
-              <input 
-                type="text"
+              <textarea 
+                rows={3}
                 value={healthGoals}
                 onChange={(e) => setHealthGoals(e.target.value)}
                 placeholder="e.g. Blood pressure management, 6,000 daily steps, restful sleep"
-                className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm"
+                className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm resize-y max-h-40 overflow-y-auto leading-relaxed"
               />
+            </div>
+
+            {/* Additional LLM Context Notes (Moved above Daily Targets) */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-stone-700 uppercase tracking-wide">
+                Additional Health & Routine Notes (Context for AI)
+              </label>
+              <textarea 
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Early riser (6 AM), prefers herbal tea over coffee, mild knee stiffness in cold weather, retired teacher."
+                className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm resize-none"
+              />
+              <p className="text-[11px] text-stone-400">
+                Gemini uses these background details to deliver more tailored coaching insights and more empathetic caregiver summaries.
+              </p>
             </div>
 
             {/* Daily Health Targets & Goals Sub-section */}
@@ -679,7 +911,7 @@ export default function Settings({
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <label className="flex items-center gap-1 text-xs font-bold text-stone-700 uppercase tracking-wide">
-                      <Scale size={13} className="text-stone-500" />
+                      <CircularScaleIcon size={13} className="text-stone-500" />
                       <span>Target Weight</span>
                     </label>
                     {aiTargets?.weight && (
@@ -734,10 +966,10 @@ export default function Settings({
               </div>
 
               {/* AI Recommended Targets Banner / Card */}
-              <div className="p-4 bg-teal-50/70 border border-teal-200/80 rounded-2xl flex flex-col gap-3">
+              <div className="p-3.5 bg-teal-50/70 border border-teal-200/80 rounded-2xl flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <Sparkles size={15} className="text-teal-700" />
+                    <Sparkles size={14} className="text-teal-700" />
                     <span className="text-xs font-bold text-teal-950 uppercase tracking-wider">
                       AI Recommended Health Baseline
                     </span>
@@ -746,44 +978,21 @@ export default function Settings({
                     type="button"
                     onClick={handleManualCalculateAi}
                     disabled={isCalculatingAiTargets}
-                    className="flex items-center gap-1 text-xs font-bold text-teal-800 hover:text-teal-900 bg-white/80 hover:bg-white px-2.5 py-1 rounded-lg border border-teal-200 shadow-2xs transition-colors"
+                    className="flex items-center gap-1 text-[11px] font-bold text-teal-800 hover:text-teal-900 bg-white/80 hover:bg-white px-2.5 py-1 rounded-lg border border-teal-200 shadow-2xs transition-colors"
                   >
                     {isCalculatingAiTargets ? (
-                      <Loader2 size={12} className="animate-spin" />
+                      <Loader2 size={11} className="animate-spin" />
                     ) : (
-                      <RefreshCw size={12} />
+                      <RefreshCw size={11} />
                     )}
-                    <span>{isCalculatingAiTargets ? 'Calculating...' : 'Recalculate AI Targets'}</span>
+                    <span>{isCalculatingAiTargets ? 'Calculating...' : 'Recalculate'}</span>
                   </button>
                 </div>
 
                 {aiTargets ? (
-                  <div className="flex flex-col gap-2.5">
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
-                      <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-2xs">
-                        <span className="text-[10px] font-bold text-stone-400 block uppercase">Calories</span>
-                        <span className="text-xs font-bold text-stone-800">{aiTargets.calories || 2000} kcal</span>
-                      </div>
-                      <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-2xs">
-                        <span className="text-[10px] font-bold text-stone-400 block uppercase">Active Time</span>
-                        <span className="text-xs font-bold text-stone-800">{aiTargets.activeTimeMins || 30} mins</span>
-                      </div>
-                      <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-2xs">
-                        <span className="text-[10px] font-bold text-stone-400 block uppercase">Resting HR</span>
-                        <span className="text-xs font-bold text-stone-800">{aiTargets.restingHeartRate || 65} bpm</span>
-                      </div>
-                      <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-2xs">
-                        <span className="text-[10px] font-bold text-stone-400 block uppercase">Weight</span>
-                        <span className="text-xs font-bold text-stone-800">{aiTargets.weight || 'Maintain'}</span>
-                      </div>
-                      <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-2xs col-span-2 sm:col-span-1">
-                        <span className="text-[10px] font-bold text-stone-400 block uppercase">Steps</span>
-                        <span className="text-xs font-bold text-stone-800">{(aiTargets.steps || 6000).toLocaleString()}</span>
-                      </div>
-                    </div>
-
+                  <div className="flex flex-col gap-2">
                     {aiTargets.rationale && (
-                      <p className="text-xs text-teal-900/80 italic font-medium leading-relaxed bg-white/50 p-2.5 rounded-xl border border-teal-100/60">
+                      <p className="text-xs text-teal-900/80 italic font-medium leading-relaxed bg-white/60 p-2.5 rounded-xl border border-teal-100/60">
                         &ldquo;{aiTargets.rationale}&rdquo;
                       </p>
                     )}
@@ -792,10 +1001,10 @@ export default function Settings({
                       <button
                         type="button"
                         onClick={applyAllAiTargets}
-                        className="text-xs font-bold text-teal-800 hover:text-teal-950 flex items-center gap-1 hover:underline"
+                        className="text-xs font-bold text-teal-800 hover:text-teal-950 flex items-center gap-1.5 bg-white/90 hover:bg-white px-3 py-1.5 rounded-xl border border-teal-200 shadow-2xs transition-colors"
                       >
-                        <Check size={13} strokeWidth={2.5} />
-                        <span>Apply All AI Targets to Form</span>
+                        <Check size={13} strokeWidth={2.5} className="text-teal-700" />
+                        <span>Use AI Recommendations as Target</span>
                       </button>
                     </div>
                   </div>
@@ -805,23 +1014,6 @@ export default function Settings({
                   </p>
                 )}
               </div>
-            </div>
-
-            {/* Additional LLM Context Notes */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-stone-700 uppercase tracking-wide">
-                Additional Health & Routine Notes (Context for AI)
-              </label>
-              <textarea 
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Early riser (6 AM), prefers herbal tea over coffee, mild knee stiffness in cold weather, retired teacher."
-                className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-sm resize-none"
-              />
-              <p className="text-[11px] text-stone-400">
-                Gemini uses these background details to deliver more tailored coaching insights and more empathetic caregiver summaries.
-              </p>
             </div>
           </div>
 
@@ -844,19 +1036,6 @@ export default function Settings({
             )}
           </button>
         </form>
-      </section>
-
-      {/* Google Drive Status */}
-      <section className="bg-gradient-to-br from-white to-canopy-50/40 rounded-[2rem] border border-canopy-200/80 shadow-sm p-5 flex items-start gap-4">
-        <div className="bg-canopy-50 p-3 rounded-2xl shrink-0 border border-canopy-200/60">
-          <FolderKey size={24} className="text-canopy-700" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-bold text-stone-900">Google Drive Storage</h2>
-          <p className="text-sm font-medium text-stone-500 leading-relaxed">
-            Your health data and profile context are stored in your private Google Drive file <span className="font-bold text-stone-700">/nalama.family/context_memory.json</span>. Only you control access.
-          </p>
-        </div>
       </section>
 
       {/* External Health & Workout Data Import Integration Section */}
@@ -892,9 +1071,74 @@ export default function Settings({
           </label>
         </div>
 
+        {/* Nalama Companion Android App Banner (Always Visible for quick onboarding) */}
+        <div className="bg-gradient-to-br from-stone-900 via-stone-900 to-stone-950 text-white p-4 sm:p-5 rounded-2xl border border-stone-800 flex flex-col gap-3.5 relative overflow-hidden">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                <Smartphone size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white">Nalama Companion App</h3>
+                  <span className="bg-teal-500/20 text-teal-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-teal-500/30">
+                    {COMPANION_APP_INFO.version} APK
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-300 font-medium">
+                  Automated background sync from Health Connect &amp; Hevy to Google Sheets &amp; Drive.
+                </p>
+              </div>
+            </div>
+
+            <a
+              href={COMPANION_APP_INFO.releaseTagUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-stone-400 hover:text-teal-300 font-medium flex items-center gap-1 hover:underline ml-auto"
+            >
+              <span>GitHub Release</span>
+              <ExternalLink size={11} />
+            </a>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+            <a
+              href={COMPANION_APP_INFO.apkDownloadUrl}
+              download={COMPANION_APP_INFO.apkFileName}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 bg-teal-600 hover:bg-teal-500 text-white font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-xs shadow-xs"
+            >
+              <Download size={14} />
+              <span>Download APK ({COMPANION_APP_INFO.apkSize})</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={handleCopyAppsScript}
+              className="bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-xs border border-stone-700"
+            >
+              {copiedScript ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              <span>{copiedScript ? 'Copied Sheets Script!' : 'Copy Webhook Script'}</span>
+            </button>
+
+            {onOpenDeveloperGuide && (
+              <button
+                type="button"
+                onClick={onOpenDeveloperGuide}
+                className="bg-stone-800/80 hover:bg-stone-800 text-teal-300 font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-1 transition-colors text-xs border border-stone-700/80"
+              >
+                <BookOpen size={14} />
+                <span>Guide &amp; Specs</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Sync Controls & Info when enabled */}
         {enableExternalImport && (
-          <div className="flex flex-col gap-3.5 pt-4 border-t border-stone-150 animate-in fade-in duration-200">
+          <div className="flex flex-col gap-3.5 pt-1 border-t border-stone-150 animate-in fade-in duration-200">
             {/* Folder Targets Summary */}
             <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200/80 flex flex-col gap-2">
               <div className="flex items-center gap-2 text-stone-800 font-bold text-xs">
@@ -1077,39 +1321,395 @@ export default function Settings({
         )}
       </section>
 
-      {/* Account Section */}
+      {/* Privacy & Legal Section */}
       <section className="flex flex-col gap-4 pt-6 border-t border-stone-200">
         <div className="flex items-center gap-2 px-1">
-          <AlertCircle size={20} className="text-stone-900" />
-          <h2 className="text-xl font-bold text-stone-900">Account</h2>
+          <Shield size={20} className="text-stone-900" />
+          <h2 className="text-xl font-bold text-stone-900">Privacy & Trust</h2>
         </div>
-        
-        <div className="bg-white p-5 rounded-[2rem] border border-stone-200 shadow-sm flex flex-col gap-4">
+
+        <div className="bg-white p-5 rounded-[2rem] border border-stone-200 shadow-sm flex flex-col gap-3">
           <p className="text-sm font-medium text-stone-500 leading-relaxed">
-            Signing out will disconnect nalama.family from your Google Drive. You will no longer be able to use the app, record health updates, or view your profiles until you sign back in.
+            Your data is 100% owned by you and saved exclusively to your personal Google Drive. Review our policies:
           </p>
-          
-          <button 
-            onClick={onLogout}
-            className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-4 px-4 rounded-2xl flex items-center justify-center gap-2 transition-colors active:scale-95"
-          >
-            <LogOut size={20} />
-            Sign Out
-          </button>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => onOpenLegal?.('privacy')}
+              className="bg-stone-50 hover:bg-stone-100 text-stone-800 font-bold p-3.5 rounded-xl border border-stone-200/80 text-xs flex items-center justify-between transition-colors text-left group"
+              id="settings-privacy-btn"
+            >
+              <span>Privacy Policy</span>
+              <ChevronRight size={16} className="text-stone-400 group-hover:text-stone-700 transition-colors" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenLegal?.('terms')}
+              className="bg-stone-50 hover:bg-stone-100 text-stone-800 font-bold p-3.5 rounded-xl border border-stone-200/80 text-xs flex items-center justify-between transition-colors text-left group"
+              id="settings-terms-btn"
+            >
+              <span>Terms of Service</span>
+              <ChevronRight size={16} className="text-stone-400 group-hover:text-stone-700 transition-colors" />
+            </button>
+          </div>
         </div>
+      </section>
+
+      {/* Advanced Settings Section */}
+      <section className="flex flex-col gap-4 pt-6 border-t border-stone-200" id="settings-advanced-section">
+        <details 
+          id="advanced-settings-details"
+          className="group bg-white rounded-[2rem] border border-stone-200 shadow-sm overflow-hidden transition-all"
+        >
+          <summary className="list-none p-5 sm:p-6 flex items-center justify-between cursor-pointer select-none hover:bg-stone-50/70 transition-colors">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200/80 text-teal-800 flex items-center justify-center shrink-0">
+                <Sliders size={20} />
+              </div>
+              <div className="flex flex-col text-left">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-stone-900">Advanced Settings</h2>
+                  <span className="text-[10px] font-bold tracking-wider uppercase bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full border border-stone-200">
+                    Storage • API • Account
+                  </span>
+                </div>
+                <p className="text-xs text-stone-500 font-medium mt-0.5">
+                  Google Drive storage, custom Gemini API key (BYOK), account sign out & data reset
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-xs font-bold text-teal-700 bg-teal-50/80 hover:bg-teal-100/80 px-3 py-1.5 rounded-xl border border-teal-200/60 transition-colors shrink-0 ml-2">
+              <span className="group-open:hidden">Show</span>
+              <span className="hidden group-open:inline">Hide</span>
+              <ChevronDown size={14} className="transform transition-transform group-open:rotate-180 text-teal-700" />
+            </div>
+          </summary>
+
+          <div className="p-5 sm:p-6 pt-3 flex flex-col gap-6 border-t border-stone-150 bg-stone-50/30 animate-in fade-in duration-200">
+            
+            {/* 1. Google Drive Storage */}
+            <div className="flex flex-col gap-3" id="settings-drive-storage">
+              <div className="flex items-center gap-2 px-1">
+                <FolderKey size={18} className="text-canopy-700" />
+                <h3 className="text-base font-bold text-stone-900">Google Drive Storage</h3>
+              </div>
+              
+              <div className="bg-white rounded-2xl border border-canopy-200/80 p-4.5 flex items-start gap-4 shadow-xs">
+                <div className="bg-canopy-50 p-2.5 rounded-xl shrink-0 border border-canopy-200/60 text-canopy-700">
+                  <FolderKey size={22} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-stone-900">Primary Health Context Storage</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-canopy-700 bg-canopy-50 px-2 py-0.5 rounded-md border border-canopy-200/60">
+                      Connected
+                    </span>
+                  </div>
+                  <p className="text-xs font-medium text-stone-500 leading-relaxed">
+                    Your health data and profile context are stored in your private Google Drive file <span className="font-bold text-stone-700 font-mono text-[11px]">/nalama.family/context_memory.json</span>. Only you control access.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Gemini AI Model & API Key (BYOK) */}
+            <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80" id="settings-gemini-byok-section">
+              <div className="flex items-center gap-2 px-1">
+                <Key size={18} className="text-teal-700" />
+                <h3 className="text-base font-bold text-stone-900">Gemini AI Model & API Key (BYOK)</h3>
+              </div>
+
+              <p className="text-stone-500 font-medium px-1 text-xs leading-relaxed">
+                nalama family uses Google Gemini for multilingual speech transcription, autonomous clinical fact extraction, weekly wellness insights, and coaching conversations.
+              </p>
+
+              <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3 border-b border-stone-100">
+                  <div>
+                    <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
+                      <span>Bring Your Own Key (BYOK)</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                        Recommended
+                      </span>
+                    </h4>
+                    <p className="text-xs text-stone-500 mt-1 max-w-xl leading-relaxed">
+                      Connect your personal Google AI Studio API key or Gemini subscription. Your key is stored securely in your browser and your private Google Drive file — never shared with third parties.
+                    </p>
+                  </div>
+
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50/80 hover:bg-teal-100/80 px-3 py-2 rounded-xl transition-colors shrink-0 border border-teal-200/60"
+                    id="get-free-gemini-key-btn"
+                  >
+                    <span>Get Free Gemini Key</span>
+                    <ExternalLink size={13} />
+                  </a>
+                </div>
+
+                <form onSubmit={handleSaveApiKey} className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="gemini-key-input" className="text-xs font-bold text-stone-700 flex items-center justify-between">
+                      <span>Personal Gemini API Key</span>
+                      {geminiApiKeyInput.trim() ? (
+                        <span className="text-teal-600 font-semibold flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Custom Key Active
+                        </span>
+                      ) : (
+                        <span className="text-stone-400 font-normal">
+                          Using App Default
+                        </span>
+                      )}
+                    </label>
+
+                    <div className="relative flex items-center">
+                      <input
+                        id="gemini-key-input"
+                        type={showApiKey ? "text" : "password"}
+                        value={geminiApiKeyInput}
+                        onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                        placeholder="AIzaSy..."
+                        className="w-full bg-stone-50/70 border border-stone-200 rounded-xl px-4 py-3 text-xs font-mono text-stone-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 pr-24"
+                        autoComplete="off"
+                        spellCheck="false"
+                      />
+                      <div className="absolute right-2 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-200/60 transition-colors"
+                          title={showApiKey ? "Hide key" : "Show key"}
+                          id="toggle-api-key-visibility-btn"
+                        >
+                          {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                        {geminiApiKeyInput.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGeminiApiKeyInput('');
+                              setCustomGeminiApiKey('');
+                              setKeyTestResult(null);
+                              setApiKeySaveStatus('Custom key cleared. App default will be used.');
+                              setTimeout(() => setApiKeySaveStatus(null), 3000);
+                            }}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
+                            title="Clear custom key"
+                            id="clear-api-key-btn"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-stone-400">
+                      Generate a free Gemini API key in seconds with your Google Account at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-teal-700 underline font-semibold">aistudio.google.com/apikey</a>.
+                    </p>
+                  </div>
+
+                  {/* Test result banner */}
+                  {keyTestResult && (
+                    <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1 ${
+                      keyTestResult.success 
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                        : 'bg-rose-50 border-rose-200 text-rose-800'
+                    }`}>
+                      {keyTestResult.success ? (
+                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <p className="font-bold">{keyTestResult.success ? 'Validation Successful' : 'Validation Error'}</p>
+                        <p className="mt-0.5 opacity-90">{keyTestResult.message}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Save status notification */}
+                  {apiKeySaveStatus && (
+                    <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-semibold flex items-center gap-2">
+                      <CheckCircle2 size={16} className="text-teal-600 shrink-0" />
+                      <span>{apiKeySaveStatus}</span>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    <button
+                      type="submit"
+                      className="bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+                      id="save-gemini-key-btn"
+                    >
+                      <Save size={15} />
+                      <span>Save API Key</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTestApiKey}
+                      disabled={isTestingKey || !geminiApiKeyInput.trim()}
+                      className="bg-stone-100 hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed text-stone-800 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 transition-colors border border-stone-200/80 cursor-pointer"
+                      id="test-gemini-key-btn"
+                    >
+                      {isTestingKey ? (
+                        <>
+                          <Loader2 size={15} className="animate-spin text-teal-700" />
+                          <span>Validating Key...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={15} className="text-teal-700" />
+                          <span>Test Connection</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            {/* 3. Account & Sign Out */}
+            <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80" id="settings-account-section">
+              <div className="flex items-center gap-2 px-1">
+                <User size={18} className="text-stone-900" />
+                <h3 className="text-base font-bold text-stone-900">Account</h3>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {userPhoto ? (
+                      <img src={userPhoto} alt={googleDisplayName} className="w-10 h-10 rounded-full border border-stone-200 shrink-0" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-teal-100 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-sm shrink-0">
+                        {googleDisplayName[0]?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-bold text-stone-900 truncate">{googleDisplayName}</span>
+                      <span className="text-xs font-medium text-stone-500 truncate">{googleEmail}</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                    Active Session
+                  </span>
+                </div>
+
+                <p className="text-xs font-medium text-stone-500 leading-relaxed">
+                  Signing out will disconnect nalama family from your Google Drive. You will no longer be able to use the app, record health updates, or view your profiles until you sign back in.
+                </p>
+
+                <button 
+                  onClick={onLogout}
+                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors active:scale-98 border border-rose-200/50 text-xs cursor-pointer"
+                  id="settings-sign-out-btn"
+                >
+                  <LogOut size={16} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Reset Application Context */}
+            <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80">
+              <div className="flex items-center gap-2 px-1">
+                <AlertCircle size={18} className="text-rose-600" />
+                <h3 className="text-base font-bold text-rose-700">Data Management & Context Reset</h3>
+              </div>
+
+              <div className="p-4.5 bg-rose-50/40 rounded-2xl border border-rose-200/60 flex flex-col gap-3">
+                <p className="text-xs font-medium text-stone-600 leading-relaxed">
+                  This will securely reset your personal profile, family facts, AI coaching chats, weekly insights, caregiver digests, and active monthly health logs back to a completely clean state in your private Google Drive.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setShowResetAllConfirm(true)}
+                  disabled={isResettingAll}
+                  className="w-full bg-white hover:bg-rose-50 disabled:bg-stone-50 disabled:text-stone-400 text-rose-700 font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-transform active:scale-98 border border-rose-200 cursor-pointer shadow-2xs"
+                  id="settings-reset-context-btn"
+                >
+                  {isResettingAll ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Resetting all Drive context...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>Reset All Context (Google Drive)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </details>
       </section>
 
       {/* Brand & About Footer */}
       <div className="flex flex-col items-center justify-center gap-2 pt-6 pb-4 text-center">
-        <div className="w-12 h-12 rounded-2xl bg-white p-2 border border-tree-100 shadow-xs flex items-center justify-center">
-          <img src="/pwa-192x192.png" alt="nalama tree logo" className="w-full h-full object-contain" />
+        <div className="w-12 h-12 rounded-2xl bg-white p-1.5 border border-tree-100 shadow-xs flex items-center justify-center">
+          <img src={variant.logoSrc} alt={`${variant.brandName} logo`} className="w-full h-full object-contain" />
         </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-extrabold text-stone-800">nalama.family</span>
+        <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center select-none mb-1.5">
+            <span className="text-sm font-black leading-none text-tree-700 uppercase tracking-widest">{variant.brandWord}</span>
+            <span className="text-[10px] font-bold tracking-[0.18em] text-canopy-600 uppercase mt-0.5">family</span>
+          </div>
           <span className="text-xs font-semibold text-tree-700">Private Family Health Assistant</span>
           <span className="text-[11px] text-stone-400 mt-0.5">Offline-Ready PWA • Stored in Google Drive</span>
+          <span className="text-[11px] text-stone-400 font-mono mt-1">App Version: v2.1.0 (Beta)</span>
         </div>
       </div>
+
+      {/* Reset All Context Confirmation Modal */}
+      {showResetAllConfirm && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-6 z-50">
+          <div className="bg-[#F9F7F4] rounded-[2rem] border border-stone-200 shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95">
+            <div className="flex flex-col gap-2">
+              <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-1">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-stone-900">Are you absolutely sure?</h3>
+              <p className="text-xs font-medium text-stone-500 leading-relaxed">
+                This will completely wipe out your saved health profiles, family facts, AI-coaching records, and Google Drive family summaries. This operation cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleExecuteResetAll}
+                disabled={isResettingAll}
+                className="w-full bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-transform active:scale-98"
+              >
+                {isResettingAll ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Check size={16} strokeWidth={2.5} />
+                )}
+                {isResettingAll ? 'Resetting Drive files...' : 'Yes, Reset All Context'}
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setShowResetAllConfirm(false)}
+                disabled={isResettingAll}
+                className="w-full bg-stone-100 hover:bg-stone-200 text-stone-600 font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center transition-transform active:scale-98"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
