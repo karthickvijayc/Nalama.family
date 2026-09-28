@@ -17,7 +17,6 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
 
 # Install production dependencies only
 COPY package*.json ./
@@ -27,8 +26,8 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 
-# Expose the standard Cloud Run port
-EXPOSE 3000
+# Expose ports (Cloud Run dynamically injects PORT, defaults to 8080)
+EXPOSE 8080 3000
 
 # Run the backend server (which serves the Vite SPA and API endpoints)
 CMD ["node", "dist/server.cjs"]

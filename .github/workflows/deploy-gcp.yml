@@ -59,7 +59,7 @@ jobs:
           SERVICE=$(echo "$SERVICE" | tr -d '[:space:]')
           
           if [ -z "$PROJECT_ID" ]; then
-            echo "❌ Error: Could not determine GCP Project ID. Please ensure GCP_SA_KEY is valid or set GCP_PROJECT_ID."
+            echo "❌ Error: Could not determine GCP Project ID. Please ensure GCP_SA_KEY is valid or set GCP_PROJECT_ID in repository secrets."
             exit 1
           fi
           
@@ -77,7 +77,7 @@ jobs:
           echo "Enabling Cloud Run & Artifact Registry APIs..."
           gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project="$PROJECT_ID" --quiet || true
 
-      - name: Setup Artifact Registry & Docker Auth
+      - name: Setup Artifact Registry Docker Repository
         run: |
           echo "Checking Artifact Registry repository $GAR_REPO in $GAR_REGION..."
           if ! gcloud artifacts repositories describe "$GAR_REPO" --location="$GAR_REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
@@ -91,9 +91,13 @@ jobs:
           else
             echo "Repository $GAR_REPO exists."
           fi
-          
-          echo "Configuring Docker authentication..."
-          gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
+
+      - name: Authenticate Docker with Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
 
       - name: Build and Push Docker Container
         run: |
@@ -120,9 +124,7 @@ jobs:
             --image "$IMAGE" \
             --region "$GAR_REGION" \
             --project "$PROJECT_ID" \
-            --platform managed \
             --allow-unauthenticated \
-            --port 3000 \
             --memory 512Mi \
             --cpu 1 \
             --min-instances 0 \
