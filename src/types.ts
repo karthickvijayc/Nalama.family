@@ -98,6 +98,9 @@ export interface UserProfile {
   userTargets?: UserTargets;
   aiTargets?: UserTargets;
 
+  // Custom Bring-Your-Own Gemini API Key
+  customGeminiApiKey?: string;
+
   // External Health & Workout Data Import Settings
   enableExternalDataImport?: boolean;
   lastImportSyncTimestamp?: string;

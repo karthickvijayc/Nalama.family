@@ -258,7 +258,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
     if (!driveState) return;
     setIsScanningDrive(true);
     try {
-      const files = await searchSharedCareDigests(driveState.token, driveState.contextFileId);
+      const files = await searchSharedCareDigests(driveState.token);
       setDiscoveredFiles(files);
     } catch (err) {
       console.error('Scan error:', err);
