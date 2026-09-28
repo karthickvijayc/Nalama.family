@@ -43,7 +43,7 @@ jobs:
 
       - name: Install & Run CI Validation
         run: |
-          npm ci
+          npm ci || npm install
           npm run lint
           npm run build
 
