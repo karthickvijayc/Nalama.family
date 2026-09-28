@@ -6,12 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  GAR_REGION: ${{ secrets.GCP_REGION || 'asia-southeast1' }}
-  GAR_REPO: ${{ secrets.GCP_GAR_REPOSITORY || 'nalama-family' }}
-  SERVICE_NAME: ${{ secrets.GCP_CLOUDRUN_SERVICE || 'nalama-family' }}
-  IMAGE_NAME: nalama-family
-
 jobs:
   build-and-deploy:
     name: Build, Containerize & Deploy to Cloud Run
@@ -21,19 +15,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Validate GitHub Secrets
+      - name: Validate GitHub Secrets & Setup Environment
+        id: prep
         run: |
-          if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
+          RAW_PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          RAW_SA_KEY="${{ secrets.GCP_SA_KEY }}"
+          
+          # Trim potential whitespace
+          PROJECT_ID=$(echo "$RAW_PROJECT_ID" | tr -d '[:space:]')
+          GAR_REGION="${{ secrets.GCP_REGION || 'asia-southeast1' }}"
+          GAR_REPO="${{ secrets.GCP_GAR_REPOSITORY || 'nalama-family' }}"
+          SERVICE_NAME="${{ secrets.GCP_CLOUDRUN_SERVICE || 'nalama-family' }}"
+          
+          if [ -z "$PROJECT_ID" ]; then
             echo "❌ Error: GCP_PROJECT_ID secret is not set in GitHub repository settings."
             echo "Please go to Settings > Secrets and variables > Actions and add GCP_PROJECT_ID."
             exit 1
           fi
-          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+          if [ -z "$RAW_SA_KEY" ]; then
             echo "❌ Error: GCP_SA_KEY secret is not set in GitHub repository settings."
             echo "Please go to Settings > Secrets and variables > Actions and add GCP_SA_KEY with your Service Account JSON key."
             exit 1
           fi
-          echo "✅ Required GitHub secrets are present."
+          
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+          echo "GAR_REGION=$GAR_REGION" >> $GITHUB_ENV
+          echo "GAR_REPO=$GAR_REPO" >> $GITHUB_ENV
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME=nalama-family" >> $GITHUB_ENV
+          
+          echo "✅ Project ID and configuration prepared successfully."
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -56,47 +67,39 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure GCP Project & Enable APIs
+      - name: Configure GCP Project & APIs
         run: |
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           gcloud config set project "$PROJECT_ID"
+          echo "Configured default project to $PROJECT_ID."
           
-          echo "Ensuring Cloud Run and Artifact Registry APIs are enabled..."
-          gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project="$PROJECT_ID" --quiet || true
+          echo "Ensuring required GCP APIs are active..."
+          gcloud services enable run.googleapis.com artifactregistry.googleapis.com --quiet || true
 
       - name: Ensure Artifact Registry Exists & Configure Docker
         run: |
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          REGION="${{ env.GAR_REGION }}"
-          REPO="${{ env.GAR_REPO }}"
-          
-          echo "Checking Artifact Registry repository $REPO in $REGION..."
-          if ! gcloud artifacts repositories describe "$REPO" --location="$REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Repository not found. Creating Artifact Registry repository $REPO..."
-            gcloud artifacts repositories create "$REPO" \
+          echo "Checking Artifact Registry repository $GAR_REPO in $GAR_REGION..."
+          if ! gcloud artifacts repositories describe "$GAR_REPO" --location="$GAR_REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Creating Artifact Registry repository $GAR_REPO..."
+            gcloud artifacts repositories create "$GAR_REPO" \
               --repository-format=docker \
-              --location="$REGION" \
+              --location="$GAR_REGION" \
               --description="Nalama Family container repository" \
               --project="$PROJECT_ID" \
               --quiet || true
           else
-            echo "Repository $REPO exists."
+            echo "Repository $GAR_REPO is ready."
           fi
           
           echo "Configuring Docker authentication..."
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
 
       - name: Build and Push Docker Container
         run: |
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          REGION="${{ env.GAR_REGION }}"
-          REPO="${{ env.GAR_REPO }}"
+          REGISTRY="${GAR_REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}"
+          IMAGE_TAG="${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}"
+          LATEST_TAG="${REGISTRY}/${IMAGE_NAME}:latest"
           
-          REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}"
-          IMAGE_TAG="${REGISTRY}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          LATEST_TAG="${REGISTRY}/${{ env.IMAGE_NAME }}:latest"
-          
-          echo "Building Docker image: $IMAGE_TAG"
+          echo "Building Docker container image..."
           docker build -t "$IMAGE_TAG" -t "$LATEST_TAG" .
           
           echo "Pushing Docker image to Artifact Registry..."
@@ -106,17 +109,15 @@ jobs:
       - name: Deploy to Google Cloud Run
         id: deploy
         run: |
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
-          REGION="${{ env.GAR_REGION }}"
-          REPO="${{ env.GAR_REPO }}"
-          SERVICE="${{ env.SERVICE_NAME }}"
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          REGISTRY="${GAR_REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}"
           
-          echo "Deploying $SERVICE to Cloud Run in region $REGION..."
+          echo "Deploying $SERVICE_NAME to Cloud Run in $GAR_REGION..."
           
-          gcloud run deploy "$SERVICE" \
+          # Deploy image to Cloud Run
+          gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE" \
-            --region "$REGION" \
+            --region "$GAR_REGION" \
             --project "$PROJECT_ID" \
             --platform managed \
             --allow-unauthenticated \
@@ -125,27 +126,24 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 5 \
-            --set-env-vars "NODE_ENV=production" \
-            --quiet
+            --set-env-vars "NODE_ENV=production"
           
-          # Check and attach GEMINI_API_KEY from Secret Manager if configured
+          # Optional: Attach GEMINI_API_KEY from Secret Manager or GitHub Secret if available
           if gcloud secrets describe GEMINI_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
             echo "Attaching GEMINI_API_KEY from Google Secret Manager..."
-            gcloud run services update "$SERVICE" \
-              --region "$REGION" \
+            gcloud run services update "$SERVICE_NAME" \
+              --region "$GAR_REGION" \
               --project "$PROJECT_ID" \
-              --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest" \
-              --quiet || echo "Note: Secret Manager binding skipped (check IAM permissions if needed)."
+              --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest" || echo "Secret Manager binding skipped."
           elif [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
             echo "Setting GEMINI_API_KEY from GitHub Secret..."
-            gcloud run services update "$SERVICE" \
-              --region "$REGION" \
+            gcloud run services update "$SERVICE_NAME" \
+              --region "$GAR_REGION" \
               --project "$PROJECT_ID" \
-              --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},NODE_ENV=production" \
-              --quiet || true
+              --update-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" || true
           fi
           
-          SERVICE_URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" --format='value(status.url)')
           echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           
           echo "=========================================================="
@@ -153,7 +151,9 @@ jobs:
           echo "URL: $SERVICE_URL"
           echo "=========================================================="
 
-      - name: Output Service URL
+      - name: Final Summary
         run: |
-          echo "Deployment finished successfully."
-          echo "Live URL: ${{ steps.deploy.outputs.service_url }}"
+          echo "=========================================================="
+          echo "✅ Deployment finished successfully!"
+          echo "Public Application URL: ${{ steps.deploy.outputs.service_url }}"
+          echo "=========================================================="

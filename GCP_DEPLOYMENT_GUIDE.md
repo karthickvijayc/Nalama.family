@@ -79,10 +79,10 @@ This grants GitHub Actions permission to push container images and deploy to Clo
 3. **Service account name**: `github-actions-deployer`
 4. Click **Create and Continue**.
 5. Assign the following **4 Roles**:
-   - **Artifact Registry Writer** (`roles/artifactregistry.writer`)
-   - **Cloud Run Developer** (`roles/run.developer`)
+   - **Cloud Run Admin** (`roles/run.admin`) *(Ensures permission to create/update Cloud Run service & set public traffic)*
+   - **Artifact Registry Administrator** or **Artifact Registry Writer** (`roles/artifactregistry.admin` or `roles/artifactregistry.writer`)
    - **Service Account User** (`roles/iam.serviceAccountUser`)
-   - **Secret Manager Secret Accessor** (`roles/secretmanager.secretAccessor`)
+   - **Secret Manager Secret Accessor** (`roles/secretmanager.secretAccessor`) *(Optional, if using Secret Manager)*
 6. Click **Done**.
 
 #### Generate the JSON Key for GitHub:
