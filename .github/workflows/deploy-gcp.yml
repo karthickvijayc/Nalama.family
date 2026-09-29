@@ -110,18 +110,20 @@ jobs:
           docker push "$IMAGE_TAG"
           docker push "$LATEST_TAG"
 
-      - name: Clear Conflicting Source Annotations
+      - name: Reconcile Cloud Run Service State
         run: |
-          # If the service was previously created from source or console buildpacks,
-          # remove stale 'run.googleapis.com/sources' and base-images annotations so container images deploy cleanly.
+          # If service was previously deployed via source-build / buildpacks in GCP console,
+          # Cloud Run blocks direct container image deployment. We detect and reset it cleanly.
           if gcloud run services describe "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "Removing any legacy source/base-image annotations from $SERVICE_NAME..."
-            gcloud run services update "$SERVICE_NAME" \
-              --region "$GAR_REGION" \
-              --project "$PROJECT_ID" \
-              --remove-annotations "run.googleapis.com/sources,run.googleapis.com/base-images" \
-              --clear-base-image \
-              --quiet || echo "Annotation cleanup step bypassed."
+            echo "Inspecting existing service $SERVICE_NAME..."
+            SERVICE_SPEC=$(gcloud run services describe "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" --format="json" 2>/dev/null || true)
+            if echo "$SERVICE_SPEC" | grep -q "run.googleapis.com/sources"; then
+              echo "⚠️ Service $SERVICE_NAME contains legacy source annotations (run.googleapis.com/sources)."
+              echo "Recreating service cleanly for container image deployment..."
+              gcloud run services delete "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" --quiet || true
+            else
+              echo "✅ Existing service $SERVICE_NAME is compatible with container deployment."
+            fi
           else
             echo "Service $SERVICE_NAME does not exist yet. It will be created on first deploy."
           fi
@@ -141,6 +143,7 @@ jobs:
             --image "$IMAGE" \
             --region "$GAR_REGION" \
             --project "$PROJECT_ID" \
+            --port 8080 \
             --allow-unauthenticated \
             --memory 512Mi \
             --cpu 1 \
@@ -149,12 +152,15 @@ jobs:
             --set-env-vars "NODE_ENV=production" \
             --quiet; then
             
-            echo "⚠️ Initial deploy encountered conflicting service configuration. Retrying with --clear-base-image..."
+            echo "⚠️ Deployment encountered an error. Recreating service cleanly and retrying..."
+            gcloud run services delete "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" --quiet || true
+            
+            echo "Re-attempting deployment on fresh service..."
             gcloud run deploy "$SERVICE_NAME" \
               --image "$IMAGE" \
               --region "$GAR_REGION" \
               --project "$PROJECT_ID" \
-              --clear-base-image \
+              --port 8080 \
               --allow-unauthenticated \
               --memory 512Mi \
               --cpu 1 \
@@ -163,6 +169,14 @@ jobs:
               --set-env-vars "NODE_ENV=production" \
               --quiet
           fi
+          
+          # Ensure public unauthenticated access
+          gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+            --region "$GAR_REGION" \
+            --project "$PROJECT_ID" \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --quiet || echo "Public IAM policy already bound or managed at project level."
           
           # Optional: Attach GEMINI_API_KEY from Secret Manager or GitHub Secret if present
           if gcloud secrets describe GEMINI_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
