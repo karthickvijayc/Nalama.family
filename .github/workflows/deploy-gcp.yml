@@ -112,6 +112,23 @@ jobs:
           docker push "$IMAGE_TAG"
           docker push "$LATEST_TAG"
 
+      - name: Clear Conflicting Source Annotations
+        run: |
+          # If the service previously had source-based deployments in GCP console,
+          # it contains stale 'run.googleapis.com/sources' annotations that block container deployments.
+          if gcloud run services describe "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Checking existing service $SERVICE_NAME for conflicting source annotations..."
+            gcloud run services describe "$SERVICE_NAME" --region "$GAR_REGION" --project "$PROJECT_ID" --format export > service_spec.yaml
+            if grep -q "run.googleapis.com/sources" service_spec.yaml || grep -q "run.googleapis.com/base-images" service_spec.yaml; then
+              echo "Stripping stale source/base-image annotations..."
+              sed -i '/run\.googleapis\.com\/sources/d' service_spec.yaml
+              sed -i '/run\.googleapis\.com\/base-images/d' service_spec.yaml
+              gcloud run services replace service_spec.yaml --region "$GAR_REGION" --project "$PROJECT_ID" --quiet || echo "Annotation cleanup skipped."
+            else
+              echo "No conflicting source annotations found."
+            fi
+          fi
+
       - name: Deploy to Google Cloud Run
         id: deploy
         run: |
@@ -124,6 +141,7 @@ jobs:
             --image "$IMAGE" \
             --region "$GAR_REGION" \
             --project "$PROJECT_ID" \
+            --clear-base-image \
             --allow-unauthenticated \
             --memory 512Mi \
             --cpu 1 \
