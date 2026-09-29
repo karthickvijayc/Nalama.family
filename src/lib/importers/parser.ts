@@ -20,43 +20,60 @@ export interface ParseResult {
 }
 
 /**
- * Parses simple CSV content into headers and row objects
+ * RFC-4180 compliant CSV parser that handles multiline fields, double quotes, and commas inside quotes.
  */
 export function parseCSV(csvText: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) return { headers: [], rows: [] };
+  if (!csvText || !csvText.trim()) return { headers: [], rows: [] };
 
-  // Parse CSV line taking quotes into account
-  const parseLine = (line: string): string[] => {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
+  const records: string[][] = [];
+  let currentRecord: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
+  const len = csvText.length;
+
+  for (let i = 0; i < len; i++) {
+    const char = csvText[i];
+    if (char === '"') {
+      if (inQuotes && i + 1 < len && csvText[i + 1] === '"') {
+        currentField += '"';
+        i++;
       } else {
-        current += char;
+        inQuotes = !inQuotes;
       }
+    } else if (char === ',' && !inQuotes) {
+      currentRecord.push(currentField.trim());
+      currentField = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && i + 1 < len && csvText[i + 1] === '\n') {
+        i++;
+      }
+      currentRecord.push(currentField.trim());
+      currentField = '';
+      if (currentRecord.some(col => col.length > 0)) {
+        records.push(currentRecord);
+      }
+      currentRecord = [];
+    } else {
+      currentField += char;
     }
-    values.push(current.trim());
-    return values;
-  };
+  }
 
-  const rawHeaders = parseLine(lines[0]);
+  // Handle final trailing field/record
+  if (currentField.length > 0 || currentRecord.length > 0) {
+    currentRecord.push(currentField.trim());
+    if (currentRecord.some(col => col.length > 0)) {
+      records.push(currentRecord);
+    }
+  }
+
+  if (records.length < 2) return { headers: [], rows: [] };
+
+  const rawHeaders = records[0];
   const cleanHeaders = rawHeaders.map(h => h.replace(/^["']|["']$/g, '').trim());
 
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const vals = parseLine(lines[i]);
+  for (let i = 1; i < records.length; i++) {
+    const vals = records[i];
     if (vals.length === 0 || (vals.length === 1 && !vals[0])) continue;
     const rowObj: Record<string, string> = {};
     cleanHeaders.forEach((h, idx) => {
@@ -86,7 +103,7 @@ function formatDisplayDate(date: Date): string {
  * Ingests and converts a Canonical Workout Session into a structured HealthLogEntry
  */
 export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession): HealthLogEntry {
-  const sessionDateStr = session.date || new Date().toISOString().split('T')[0];
+  const sessionDateStr = (session.date || '').split('T')[0] || new Date().toISOString().split('T')[0];
   const dateParts = sessionDateStr.split('-');
   const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
   const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
@@ -95,10 +112,18 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
   let startHour = 8;
   let startMin = 0;
   if (session.startTime) {
-    const timeMatch = session.startTime.match(/(\d+):(\d+)/);
-    if (timeMatch) {
-      startHour = parseInt(timeMatch[1], 10);
-      startMin = parseInt(timeMatch[2], 10);
+    if (session.startTime.includes('T')) {
+      const dParsed = new Date(session.startTime);
+      if (!isNaN(dParsed.getTime())) {
+        startHour = dParsed.getHours();
+        startMin = dParsed.getMinutes();
+      }
+    } else {
+      const timeMatch = session.startTime.match(/(\d+):(\d+)/);
+      if (timeMatch) {
+        startHour = parseInt(timeMatch[1], 10);
+        startMin = parseInt(timeMatch[2], 10);
+      }
     }
   }
 
@@ -139,8 +164,8 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
   if (exerciseSummaries.length > 0) {
     detailLines.push(`• Exercises: ${exerciseSummaries.join(', ')}`);
   }
-  if (session.notes) {
-    detailLines.push(`• Notes: "${session.notes}"`);
+  if (session.notes && session.notes.trim()) {
+    detailLines.push(`• Notes: "${session.notes.trim()}"`);
   }
 
   const transcript = detailLines.join('\n');
@@ -167,7 +192,7 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
  */
 export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealthRecord): HealthLogEntry[] {
   const entries: HealthLogEntry[] = [];
-  const dateStr = record.date || new Date().toISOString().split('T')[0];
+  const dateStr = (record.date || '').split('T')[0] || new Date().toISOString().split('T')[0];
   const dateParts = dateStr.split('-');
   const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
   const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
@@ -206,7 +231,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
   }
 
   // 2. Daily Steps & Activity Entry
-  if (record.activity && (record.activity.steps || record.activity.activeCaloriesKcal || record.activity.activeDurationMinutes)) {
+  if (record.activity && (record.activity.steps || record.activity.activeCaloriesKcal || record.activity.totalCaloriesKcal || record.activity.activeDurationMinutes)) {
     const actDate = new Date(year, month, day, 20, 0);
     const steps = record.activity.steps || 0;
     const activeCal = record.activity.activeCaloriesKcal || record.activity.totalCaloriesKcal || 0;
@@ -245,7 +270,13 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
     
     if (record.vitals.restingHeartRateBpm?.avg || record.vitals.restingHeartRateBpm?.min) {
       const rhr = record.vitals.restingHeartRateBpm.avg || record.vitals.restingHeartRateBpm.min;
-      lines.push(`• Resting Heart Rate: ${rhr} bpm`);
+      const min = record.vitals.restingHeartRateBpm.min;
+      const max = record.vitals.restingHeartRateBpm.max;
+      if (min !== undefined && max !== undefined && (min !== max || min !== rhr)) {
+        lines.push(`• Resting Heart Rate: ${rhr} bpm (Range: ${min}-${max} bpm)`);
+      } else {
+        lines.push(`• Resting Heart Rate: ${rhr} bpm`);
+      }
     }
     if (record.vitals.heartRateVariabilityMs?.avg || record.vitals.hrvRmssdMs?.avg) {
       const hrv = record.vitals.heartRateVariabilityMs?.avg || record.vitals.hrvRmssdMs?.avg;
@@ -387,9 +418,10 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       const sessionMap = new Map<string, CanonicalWorkoutSession>();
 
       rows.forEach((row) => {
-        const date = row['date'] || row['Date'] || row['Start Date'] || new Date().toISOString().split('T')[0];
+        const date = (row['date'] || row['Date'] || row['Start Date'] || new Date().toISOString().split('T')[0]).split('T')[0];
         const title = row['title'] || row['Workout Title'] || row['Workout Name'] || 'Gym Workout';
         const workoutId = row['workout_id'] || row['Workout ID'] || row['Hevy Workout ID'] || `${date}-${title.replace(/\s+/g, '_')}`;
+        const rowNotes = (row['notes'] || row['Workout Notes'] || row['Notes'] || '').trim();
 
         if (!sessionMap.has(workoutId)) {
           sessionMap.set(workoutId, {
@@ -405,20 +437,26 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             maxHeartRateBpm: parseFloat(row['max_hr_bpm'] || row['Max Heart Rate (bpm)'] || row['Max Heart Rate'] || '0') || undefined,
             caloriesActualHr: parseFloat(row['calories'] || row['Calories (Actual / HR)'] || row['Calories'] || '0') || undefined,
             caloriesEstMet: parseFloat(row['Calories (Est. MET)'] || '0') || undefined,
-            notes: row['notes'] || row['Workout Notes'] || row['Notes'] || undefined,
+            notes: rowNotes || undefined,
             exercises: []
           });
         }
 
         const session = sessionMap.get(workoutId)!;
+        if (rowNotes && !session.notes) {
+          session.notes = rowNotes;
+        }
+
         const exerciseName = row['exercise_name'] || row['Exercise Name'] || row['Exercise'] || row['exercise'] || '';
         if (exerciseName) {
           let exGroup = session.exercises.find(e => e.exerciseName === exerciseName);
           if (!exGroup) {
             const targetMuscleGroup = row['target_muscle_group'] || row['Muscle Group'] || undefined;
             const equipment = row['equipment'] || row['Equipment'] || undefined;
-            exGroup = { exerciseName, targetMuscleGroup, equipment, sets: [] };
+            exGroup = { exerciseName, targetMuscleGroup, equipment, sets: [], notes: rowNotes || undefined };
             session.exercises.push(exGroup);
+          } else if (rowNotes && !exGroup.notes) {
+            exGroup.notes = rowNotes;
           }
 
           const weightKg = parseFloat(row['weight_kg'] || row['Weight (kg)'] || row['Weight'] || '0') || 0;
@@ -448,9 +486,10 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
           session.totalSets = session.exercises.reduce((sum, ex) => sum + ex.sets.length, 0);
         }
         if (session.totalVolumeKg === 0) {
-          session.totalVolumeKg = session.exercises.reduce((sum, ex) => 
+          const calculatedVolume = session.exercises.reduce((sum, ex) => 
             sum + ex.sets.reduce((sSum, s) => sSum + (s.setVolumeKg || (s.weightKg * s.reps)), 0)
           , 0);
+          session.totalVolumeKg = Math.round(calculatedVolume);
         }
       });
 
