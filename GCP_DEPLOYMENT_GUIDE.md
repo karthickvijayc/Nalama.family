@@ -62,11 +62,42 @@ gcloud services enable run.googleapis.com artifactregistry.googleapis.com secret
 
 ---
 
-### Step 4: Store your `GEMINI_API_KEY` in Secret Manager
+### Step 4: Configure Gemini / Vertex AI Authentication
+
+You can authenticate Gemini through either **Google Cloud Vertex AI** or **Google AI Studio**:
+
+#### Option A: Google Cloud Vertex AI (Recommended for GCP)
+
+You have two ways to connect Vertex AI to your Cloud Run service:
+
+1. **Keyless IAM (Best Practice for Cloud Run)**:
+   - Enable Vertex AI API:
+     ```bash
+     gcloud services enable aiplatform.googleapis.com
+     ```
+   - Grant the **Vertex AI User** role (`roles/aiplatform.user`) to your Cloud Run service account:
+     ```bash
+     gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+       --member="serviceAccount:YOUR_SERVICE_ACCOUNT@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+       --role="roles/aiplatform.user"
+     ```
+   - In Cloud Run environment variables (or `.env`), set:
+     - `GOOGLE_GENAI_USE_VERTEXAI="true"`
+     - `GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"`
+     - `GOOGLE_CLOUD_LOCATION="asia-southeast1"` (or your preferred region)
+   - *No API key or Secret Manager entry needed!*
+
+2. **Vertex AI Express Mode API Key**:
+   - In Cloud Console, go to **APIs & Services > Credentials** > Click **+ Create Credentials > API Key**.
+   - (Recommended) Restrict the API key to the **Vertex AI API** (`aiplatform.googleapis.com`).
+   - Store it in Secret Manager as `GEMINI_API_KEY` (or set environment variable `GEMINI_API_KEY`).
+   - Set environment variable: `GOOGLE_GENAI_USE_VERTEXAI="true"`.
+
+#### Option B: Google AI Studio API Key (Default)
 1. In Cloud Console, search for **Secret Manager**.
 2. Click **+ Create Secret**.
 3. **Name**: `GEMINI_API_KEY`
-4. **Secret value**: Paste your Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+4. **Secret value**: Paste your Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 5. Click **Create Secret**.
 
 ---
