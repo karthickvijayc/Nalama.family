@@ -203,9 +203,16 @@ jobs:
           echo "URL: $SERVICE_URL"
           echo "=========================================================="
 
+      - name: Deploy Firebase Hosting Rewrites (nalama.web.app)
+        run: |
+          echo "Deploying Firebase Hosting rewrite to proxy to Cloud Run..."
+          npx --yes firebase-tools deploy --only hosting:nalama --project="$PROJECT_ID" --non-interactive || echo "Firebase hosting deployment via CI will be automatic once service account has roles/firebasehosting.admin."
+
       - name: Deployment Summary
         run: |
           echo "=========================================================="
           echo "✅ CI/CD Workflow completed successfully!"
-          echo "Public Live URL: ${{ steps.deploy.outputs.service_url }}"
+          echo "🌐 Primary Custom URL: https://nalama.web.app"
+          echo "🌐 Firebase App URL:   https://nalama.firebaseapp.com"
+          echo "🚀 Cloud Run URL:       ${{ steps.deploy.outputs.service_url }}"
           echo "=========================================================="

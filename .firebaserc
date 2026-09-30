@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "gen-lang-client-0984398926"
+  },
+  "targets": {
+    "gen-lang-client-0984398926": {
+      "hosting": {
+        "nalama": [
+          "nalama"
+        ]
+      }
+    }
+  }
+}

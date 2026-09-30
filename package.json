@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:recon": "tsx scripts/test-reconciliation.ts"
+    "test:recon": "tsx scripts/test-reconciliation.ts",
+    "deploy:hosting": "firebase deploy --only hosting:nalama"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
