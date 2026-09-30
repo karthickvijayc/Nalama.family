@@ -21,7 +21,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Helper to initialize Gemini client safely with optional BYOK (Bring Your Own Key) or Vertex AI (GCP)
+  // Helper to initialize Gemini client safely with optional BYOK (Bring Your Own Key) or Gemini Enterprise Agent Platform / Vertex AI (GCP)
   const getAiClient = (userApiKey?: string) => {
     const customKey = userApiKey && userApiKey.trim();
     // 1. Prioritize user-provided BYOK from Settings (client UI)
@@ -31,18 +31,18 @@ async function startServer() {
       });
     }
 
-    const useVertex =
-      process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
+    const useEnterprise =
       process.env.GOOGLE_GENAI_USE_ENTERPRISE === "true" ||
+      process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
       process.env.VERTEX_AI === "true";
     const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID;
     const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "us-central1";
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.VERTEX_API_KEY;
 
-    // 2. Vertex AI mode (supports both Vertex AI Express API Key and GCP Service Account / ADC)
-    if (useVertex) {
+    // 2. Gemini Enterprise Agent Platform (formerly Vertex AI) mode
+    if (useEnterprise) {
       return new GoogleGenAI({
-        vertexai: true,
+        enterprise: true,
         ...(project ? { project } : {}),
         ...(location ? { location } : {}),
         ...(apiKey ? { apiKey: apiKey.trim() } : {}),
@@ -52,7 +52,7 @@ async function startServer() {
     // 3. Google AI Studio mode (default)
     if (!apiKey) {
       throw new Error(
-        "No Gemini API key or Vertex AI credentials available. Configure GEMINI_API_KEY in server environment, or set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT, or enter a personal key in Settings (BYOK)."
+        "No Gemini API key or GCP credentials available. Configure GEMINI_API_KEY in server environment, or set GOOGLE_GENAI_USE_ENTERPRISE=true with GOOGLE_CLOUD_PROJECT, or enter a personal key in Settings (BYOK)."
       );
     }
 
