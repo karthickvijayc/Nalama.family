@@ -152,23 +152,29 @@ This grants GitHub Actions permission to push container images and deploy to Clo
    ```
 2. In GitHub, go to the **Actions** tab.
 3. You will see the **Build CI & Deploy to Google Cloud Run** workflow running.
-4. When complete (takes ~2-3 minutes), click on the job to see your live Cloud Run URL:
-   ```
-   https://nalama-family-<random-hash>-<region>.a.run.app
-   ```
+4. When complete (takes ~2-3 minutes), your app is live at:
+   - **Primary Live URL**: `https://nalama.web.app`
+   - **Firebase App URL**: `https://nalama.firebaseapp.com`
+   - **Direct Cloud Run URL**: `https://nalama-family-<random-hash>-<region>.a.run.app`
 
 ---
 
 ## 🔑 Final Step: Update Google OAuth (for Google Drive Sync & Login)
 
-To allow users to sign in and save health data to their Google Drive on your new Cloud Run URL:
+To allow users to sign in and save health data to their Google Drive on your new URLs:
 
 1. Go to [Google Cloud Credentials](https://console.cloud.google.com/apis/credentials).
-2. Click on your **OAuth 2.0 Client ID** (Web application).
+2. Click on your **OAuth 2.0 Client ID** (`Nalama Family Web`).
 3. Under **Authorized JavaScript origins**, click **+ Add URI** and add:
-   - `https://nalama-family-<hash>-<region>.a.run.app`
+   - `https://nalama.web.app`
+   - `https://nalama.firebaseapp.com`
+   - `http://localhost:3000`
 4. Under **Authorized redirect URIs**, click **+ Add URI** and add:
-   - `https://nalama-family-<hash>-<region>.a.run.app`
+   - `https://nalama.web.app`
+   - `https://nalama.firebaseapp.com`
+   - `https://nalama.firebaseapp.com/__/auth/handler`
+   - `https://gen-lang-client-0984398926.firebaseapp.com/__/auth/handler`
+   - `http://localhost:3000`
 5. Click **Save**.
 
 ---

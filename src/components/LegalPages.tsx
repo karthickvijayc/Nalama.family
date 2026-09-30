@@ -215,7 +215,7 @@ export default function LegalPages({ initialView = 'privacy', onBack }: LegalMod
             <div className="mt-1 flex flex-col gap-0.5">
               <span className="font-semibold text-stone-800">Developer: Karthick Vijay</span>
               <span>Email: <a href="mailto:karthickvijayc@gmail.com" className="text-tree-700 font-bold underline">karthickvijayc@gmail.com</a></span>
-              <span>App Domain: <a href="https://nalama.ai.studio" className="text-tree-700 font-semibold underline">https://nalama.ai.studio</a></span>
+              <span>App Domain: <a href="https://nalama.web.app" className="text-tree-700 font-semibold underline">https://nalama.web.app</a></span>
             </div>
           </section>
         </div>
@@ -288,6 +288,7 @@ export default function LegalPages({ initialView = 'privacy', onBack }: LegalMod
             <div className="mt-1 flex flex-col gap-0.5">
               <span className="font-semibold text-stone-800">Karthick Vijay</span>
               <span>Email: <a href="mailto:karthickvijayc@gmail.com" className="text-canopy-700 font-bold underline">karthickvijayc@gmail.com</a></span>
+              <span>App Domain: <a href="https://nalama.web.app" className="text-tree-700 font-semibold underline">https://nalama.web.app</a></span>
             </div>
           </section>
         </div>
