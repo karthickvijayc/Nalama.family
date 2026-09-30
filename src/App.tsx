@@ -14,6 +14,7 @@ import SyncFloatingBanner from './components/SyncFloatingBanner';
 import VoiceRecorderButton from './components/VoiceRecorderButton';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import LoginScreen from './components/LoginScreen';
+import LegalPages from './components/LegalPages';
 import { initAuth, logout } from './lib/auth';
 import { 
   findOrCreateFolder, 
@@ -43,6 +44,16 @@ export default function App() {
   const [driveState, setDriveState] = useState<DriveState | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [logsRefreshTrigger, setLogsRefreshTrigger] = useState(0);
+
+  // Check if user is navigating directly to /privacy or /terms
+  const [legalView, setLegalView] = useState<'privacy' | 'terms' | null>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/privacy' || path.endsWith('/privacy')) return 'privacy';
+      if (path === '/terms' || path.endsWith('/terms')) return 'terms';
+    }
+    return null;
+  });
 
   // External Sync Status & UI state
   const [syncStatus, setSyncStatus] = useState<'checking' | 'processing' | 'success' | 'error' | 'idle'>('idle');
@@ -207,6 +218,24 @@ export default function App() {
     setDriveState(null);
   };
 
+  if (legalView) {
+    return (
+      <div className="min-h-screen bg-[#F9F7F4] py-8 px-4">
+        <div className="max-w-2xl mx-auto">
+          <LegalPages 
+            initialView={legalView} 
+            onBack={() => {
+              setLegalView(null);
+              if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+                window.history.pushState({}, '', '/');
+              }
+            }} 
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (isInitializing) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F9F7F4] gap-4 p-6">
@@ -254,11 +283,14 @@ export default function App() {
 
   if (needsAuth) {
     return (
-      <LoginScreen onLogin={(user, token) => {
-        setUser(user);
-        setIsInitializing(true);
-        initializeDriveEnv(token);
-      }} />
+      <LoginScreen 
+        onLogin={(user, token) => {
+          setUser(user);
+          setIsInitializing(true);
+          initializeDriveEnv(token);
+        }}
+        onOpenLegal={(tab) => setLegalView(tab)}
+      />
     );
   }
 
