@@ -24,7 +24,8 @@ import {
   getOrCreateMonthlyLogFile, 
   getOrCreateCareDigestFile, 
   getUserProfileFromDrive, 
-  saveUserProfileToDrive 
+  saveUserProfileToDrive,
+  resetAllDriveContext 
 } from './lib/drive';
 import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { User } from 'firebase/auth';
@@ -352,6 +353,30 @@ export default function App() {
               if (driveState?.contextFileId && driveState?.token) {
                 await saveUserProfileToDrive(driveState.token, driveState.contextFileId, updated);
               }
+            }}
+            onResetAllContext={async () => {
+              if (!driveState?.token || !driveState.mainFolderId || !driveState.contextFileId) {
+                throw new Error('Google Drive is not connected');
+              }
+              const result = await resetAllDriveContext(
+                driveState.token,
+                driveState.mainFolderId,
+                driveState.familyFolderId,
+                driveState.contextFileId,
+                user
+              );
+              // Update state in React
+              setUserProfile(result.initialProfile);
+
+              // Clear cached local storage
+              try {
+                localStorage.removeItem('nalama_caregiver_profiles');
+              } catch (e) {
+                console.warn('Could not clear local storage profiles:', e);
+              }
+
+              // Trigger reload across all tabs (Dashboard, Family, Coaching, Logs)
+              setLogsRefreshTrigger(prev => prev + 1);
             }}
           />
         )}

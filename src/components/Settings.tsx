@@ -99,6 +99,7 @@ export default function Settings({
   // Reset all context state
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
   const [isResettingAll, setIsResettingAll] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   // External data import toggle state
   const [enableExternalImport, setEnableExternalImport] = useState(userProfile?.enableExternalDataImport || false);
@@ -144,26 +145,30 @@ export default function Settings({
   // Keep form in sync when userProfile updates
   useEffect(() => {
     if (userProfile) {
-      if (userProfile.nickname !== undefined) setNickname(userProfile.nickname);
-      if (userProfile.age !== undefined) setAge(String(userProfile.age));
-      if (userProfile.gender !== undefined) setGender(userProfile.gender);
-      if (userProfile.height !== undefined) setHeight(userProfile.height);
-      if (userProfile.weight !== undefined) setWeight(userProfile.weight);
-      if (userProfile.lifestyle !== undefined) setLifestyle(userProfile.lifestyle);
-      if (userProfile.dietaryPreference !== undefined) setDietaryPreference(userProfile.dietaryPreference);
-      if (userProfile.healthGoals !== undefined) setHealthGoals(userProfile.healthGoals);
-      if (userProfile.primaryLanguage !== undefined) setPrimaryLanguage(userProfile.primaryLanguage);
-      if (userProfile.notes !== undefined) setNotes(userProfile.notes);
+      setNickname(userProfile.nickname || '');
+      setAge(userProfile.age !== undefined && userProfile.age !== null ? String(userProfile.age) : '');
+      setGender(userProfile.gender || '');
+      setHeight(userProfile.height || '');
+      setWeight(userProfile.weight || '');
+      setLifestyle(userProfile.lifestyle || '');
+      setDietaryPreference(userProfile.dietaryPreference || '');
+      setHealthGoals(userProfile.healthGoals || '');
+      setPrimaryLanguage(userProfile.primaryLanguage || 'English');
+      setNotes(userProfile.notes || '');
       if (userProfile.userTargets) {
-        if (userProfile.userTargets.calories !== undefined) setTargetCalories(String(userProfile.userTargets.calories));
-        if (userProfile.userTargets.activeTimeMins !== undefined) setTargetActiveTime(String(userProfile.userTargets.activeTimeMins));
-        if (userProfile.userTargets.restingHeartRate !== undefined) setTargetRestingHR(String(userProfile.userTargets.restingHeartRate));
-        if (userProfile.userTargets.weight !== undefined) setTargetWeight(userProfile.userTargets.weight);
-        if (userProfile.userTargets.steps !== undefined) setTargetSteps(String(userProfile.userTargets.steps));
+        setTargetCalories(userProfile.userTargets.calories !== undefined ? String(userProfile.userTargets.calories) : '');
+        setTargetActiveTime(userProfile.userTargets.activeTimeMins !== undefined ? String(userProfile.userTargets.activeTimeMins) : '');
+        setTargetRestingHR(userProfile.userTargets.restingHeartRate !== undefined ? String(userProfile.userTargets.restingHeartRate) : '');
+        setTargetWeight(userProfile.userTargets.weight || '');
+        setTargetSteps(userProfile.userTargets.steps !== undefined ? String(userProfile.userTargets.steps) : '');
+      } else {
+        setTargetCalories('');
+        setTargetActiveTime('');
+        setTargetRestingHR('');
+        setTargetWeight('');
+        setTargetSteps('');
       }
-      if (userProfile.aiTargets) {
-        setAiTargets(userProfile.aiTargets);
-      }
+      setAiTargets(userProfile.aiTargets || null);
       if (userProfile.enableExternalDataImport !== undefined) {
         setEnableExternalImport(userProfile.enableExternalDataImport);
       }
@@ -456,6 +461,8 @@ export default function Settings({
     try {
       await onResetAllContext();
       setShowResetAllConfirm(false);
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 5000);
     } catch (err) {
       console.error('Failed to reset all context:', err);
       alert('Failed to reset context. Please try again.');
@@ -492,6 +499,16 @@ export default function Settings({
         <p className="text-sm font-medium text-stone-500 px-1 leading-relaxed">
           This profile provides crucial baseline context for Gemini when analyzing your spoken voice memos, extracting medical facts, and compiling caregiver digests.
         </p>
+
+        {resetSuccess && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+            <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+            <div className="flex flex-col">
+              <span className="font-bold text-sm">All Drive context and logs have been reset!</span>
+              <span className="text-xs text-emerald-700">Your health data, chats, insights, digests, and profiles are back to a clean state.</span>
+            </div>
+          </div>
+        )}
 
         {profileSuccess && (
           <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">

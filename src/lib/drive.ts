@@ -681,3 +681,135 @@ export async function readBinaryDriveFile(token: string, fileId: string, mimeTyp
   }
 }
 
+/**
+ * Permanently deletes a file from Google Drive.
+ */
+export async function deleteFile(token: string, fileId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${DRIVE_API}/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return res.ok || res.status === 404;
+  } catch (err) {
+    console.warn(`Failed to delete file ${fileId}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Resets all context in Google Drive back to a clean state:
+ * - context_memory.json: facts: [], family_members: [], user_profile: initialProfile, weekly_digest: null
+ * - coaching_chats.json: rooms: { workout: [], diet: [], medical: [], reflection: [] }
+ * - weekly_insights.json: insights: []
+ * - care_digest.json: latest_digest: null, history: []
+ * - monthly log files: resets current month logs to [], deletes older monthly log files
+ */
+export async function resetAllDriveContext(
+  token: string,
+  mainFolderId: string,
+  familyFolderId: string,
+  contextFileId: string,
+  currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null
+): Promise<{ success: boolean; initialProfile: UserProfile }> {
+  const initialProfile: UserProfile = {
+    displayName: currentUser?.displayName || '',
+    email: currentUser?.email || '',
+    photoURL: currentUser?.photoURL || '',
+    primaryLanguage: 'English'
+  };
+
+  // 1. Reset context_memory.json
+  const freshContext = {
+    schema_version: '1.0',
+    facts: [],
+    family_members: [],
+    user_profile: initialProfile,
+    weekly_digest: null,
+    recent_topics: []
+  };
+  await writeJsonFile(token, 'context_memory.json', freshContext, mainFolderId, contextFileId);
+
+  // 2. Reset family_share/care_digest.json
+  try {
+    const freshDigest: CareDigestFileContent = {
+      schema_version: '1.0',
+      updated_at: new Date().toISOString(),
+      profile_name: currentUser?.displayName || 'Family Member',
+      latest_digest: null,
+      history: []
+    };
+    const digestFileId = await findFileOrFolder(token, 'care_digest.json', 'application/json', familyFolderId);
+    await writeJsonFile(token, 'care_digest.json', freshDigest, familyFolderId, digestFileId || undefined);
+  } catch (err) {
+    console.warn('Could not reset care_digest.json:', err);
+  }
+
+  // 3. Reset coaching_chats.json if it exists
+  try {
+    const coachingFileId = await findFileOrFolder(token, 'coaching_chats.json', 'application/json', mainFolderId);
+    if (coachingFileId) {
+      const freshChats = {
+        schema_version: '1.0',
+        rooms: { workout: [], diet: [], medical: [], reflection: [] }
+      };
+      await writeJsonFile(token, 'coaching_chats.json', freshChats, mainFolderId, coachingFileId);
+    }
+  } catch (err) {
+    console.warn('Could not reset coaching_chats.json:', err);
+  }
+
+  // 4. Reset weekly_insights.json if it exists
+  try {
+    const insightsFileId = await findFileOrFolder(token, 'weekly_insights.json', 'application/json', mainFolderId);
+    if (insightsFileId) {
+      const freshInsights = {
+        schema_version: '1.0',
+        insights: []
+      };
+      await writeJsonFile(token, 'weekly_insights.json', freshInsights, mainFolderId, insightsFileId);
+    }
+  } catch (err) {
+    console.warn('Could not reset weekly_insights.json:', err);
+  }
+
+  // 5. Reset monthly log files
+  try {
+    const monthlyFiles = await listMonthlyLogFiles(token, mainFolderId);
+    const { fileName: currentMonthFileName, monthKey: currentMonthKey } = getMonthlyLogFileName();
+    let currentMonthReset = false;
+
+    for (const mFile of monthlyFiles) {
+      if (mFile.name === currentMonthFileName) {
+        const emptyCurrentMonth = {
+          schema_version: '1.0',
+          month: currentMonthKey,
+          created_at: new Date().toISOString(),
+          logs: []
+        };
+        await writeJsonFile(token, mFile.name, emptyCurrentMonth, mainFolderId, mFile.id);
+        currentMonthReset = true;
+      } else {
+        await deleteFile(token, mFile.id);
+      }
+    }
+
+    if (!currentMonthReset) {
+      const { fileId } = await getOrCreateMonthlyLogFile(token, mainFolderId);
+      const emptyCurrentMonth = {
+        schema_version: '1.0',
+        month: currentMonthKey,
+        created_at: new Date().toISOString(),
+        logs: []
+      };
+      await writeJsonFile(token, currentMonthFileName, emptyCurrentMonth, mainFolderId, fileId);
+    }
+  } catch (err) {
+    console.warn('Could not reset monthly log files:', err);
+  }
+
+  return { success: true, initialProfile };
+}
+
