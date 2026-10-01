@@ -629,15 +629,24 @@ export async function listImportFolderFiles(token: string, folderId: string): Pr
 
 /**
  * Reads raw text/content of any file in Drive (e.g., CSV or JSON)
+ * If the file is a Google Sheet, exports it as CSV
  */
-export async function readRawDriveFile(token: string, fileId: string): Promise<string | null> {
+export async function readRawDriveFile(token: string, fileId: string, mimeType?: string): Promise<string | null> {
   try {
-    const res = await fetch(`${DRIVE_API}/${fileId}?alt=media`, {
+    const isSpreadsheet = mimeType === 'application/vnd.google-apps.spreadsheet';
+    const url = isSpreadsheet
+      ? `${DRIVE_API}/${fileId}/export?mimeType=text/csv`
+      : `${DRIVE_API}/${fileId}?alt=media`;
+
+    const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`
       }
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`Failed to read raw file ${fileId} (status ${res.status})`);
+      return null;
+    }
     return await res.text();
   } catch (err) {
     console.warn(`Failed to read raw file ${fileId}:`, err);
@@ -647,15 +656,24 @@ export async function readRawDriveFile(token: string, fileId: string): Promise<s
 
 /**
  * Reads binary content of any file in Drive as ArrayBuffer (e.g., .xlsx files)
+ * If the file is a Google Sheet, exports it as Excel (.xlsx) ArrayBuffer
  */
-export async function readBinaryDriveFile(token: string, fileId: string): Promise<ArrayBuffer | null> {
+export async function readBinaryDriveFile(token: string, fileId: string, mimeType?: string): Promise<ArrayBuffer | null> {
   try {
-    const res = await fetch(`${DRIVE_API}/${fileId}?alt=media`, {
+    const isSpreadsheet = mimeType === 'application/vnd.google-apps.spreadsheet';
+    const url = isSpreadsheet
+      ? `${DRIVE_API}/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+      : `${DRIVE_API}/${fileId}?alt=media`;
+
+    const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`
       }
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`Failed to read binary file ${fileId} (status ${res.status})`);
+      return null;
+    }
     return await res.arrayBuffer();
   } catch (err) {
     console.warn(`Failed to read binary file ${fileId}:`, err);

@@ -25,26 +25,34 @@ export interface ParseResult {
 export function parseCSV(csvText: string): { headers: string[]; rows: Record<string, string>[] } {
   if (!csvText || !csvText.trim()) return { headers: [], rows: [] };
 
+  // Strip UTF-8 BOM if present
+  const cleanCsv = csvText.replace(/^\uFEFF/, '');
+
+  // Detect delimiter (semicolon vs comma)
+  const firstNewline = cleanCsv.indexOf('\n');
+  const firstLine = firstNewline !== -1 ? cleanCsv.substring(0, firstNewline) : cleanCsv;
+  const delimiter = (!firstLine.includes(',') && firstLine.includes(';')) ? ';' : ',';
+
   const records: string[][] = [];
   let currentRecord: string[] = [];
   let currentField = '';
   let inQuotes = false;
-  const len = csvText.length;
+  const len = cleanCsv.length;
 
   for (let i = 0; i < len; i++) {
-    const char = csvText[i];
+    const char = cleanCsv[i];
     if (char === '"') {
-      if (inQuotes && i + 1 < len && csvText[i + 1] === '"') {
+      if (inQuotes && i + 1 < len && cleanCsv[i + 1] === '"') {
         currentField += '"';
         i++;
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       currentRecord.push(currentField.trim());
       currentField = '';
     } else if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && i + 1 < len && csvText[i + 1] === '\n') {
+      if (char === '\r' && i + 1 < len && cleanCsv[i + 1] === '\n') {
         i++;
       }
       currentRecord.push(currentField.trim());
@@ -86,6 +94,80 @@ export function parseCSV(csvText: string): { headers: string[]; rows: Record<str
 }
 
 /**
+ * Standardize any date format into canonical "YYYY-MM-DD"
+ */
+export function normalizeDateStr(rawDate: any): string {
+  if (!rawDate) return new Date().toISOString().split('T')[0];
+
+  // Handle Excel numeric serial dates (e.g. 45558)
+  if (typeof rawDate === 'number' || (!isNaN(Number(rawDate)) && Number(rawDate) > 30000 && Number(rawDate) < 70000)) {
+    const serial = Number(rawDate);
+    const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  }
+
+  const str = String(rawDate).trim().replace(/[T ].*$/, '');
+
+  // 1. Match YYYY-MM-DD or YYYY/MM/DD
+  const ymd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (ymd) {
+    return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+  }
+
+  // 2. Match DD-MM-YYYY or DD/MM/YYYY
+  const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmy) {
+    const p1 = parseInt(dmy[1], 10);
+    const p2 = parseInt(dmy[2], 10);
+    const year = dmy[3];
+    return `${year}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+  }
+
+  // Fallback to Date parser
+  const parsed = new Date(String(rawDate));
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Robust duration parser for workouts (handles "1h 15m", "45m", "01:15:00", minutes)
+ */
+export function parseDurationMinutes(val: string | number | undefined): number {
+  if (val === undefined || val === null || val === '') return 45;
+  if (typeof val === 'number') return isNaN(val) || val <= 0 ? 45 : val;
+  const str = String(val).trim();
+  if (!isNaN(Number(str))) {
+    const n = Number(str);
+    return n > 0 ? n : 45;
+  }
+  const hMatch = str.match(/(\d+)\s*h(?:our)?s?/i);
+  const mMatch = str.match(/(\d+)\s*m(?:in(?:ute)?s?)?/i);
+  if (hMatch || mMatch) {
+    const hours = hMatch ? parseInt(hMatch[1], 10) : 0;
+    const mins = mMatch ? parseInt(mMatch[1], 10) : 0;
+    const total = (hours * 60) + mins;
+    return total > 0 ? total : 45;
+  }
+  const timeParts = str.split(':');
+  if (timeParts.length === 3) {
+    const h = parseInt(timeParts[0], 10) || 0;
+    const m = parseInt(timeParts[1], 10) || 0;
+    return (h * 60) + m;
+  }
+  if (timeParts.length === 2) {
+    return parseInt(timeParts[0], 10) || 45;
+  }
+  const p = parseFloat(str);
+  return isNaN(p) || p <= 0 ? 45 : p;
+}
+
+/**
  * Format a Date object into display time like "7:30 AM"
  */
 function formatDisplayTime(date: Date): string {
@@ -103,7 +185,7 @@ function formatDisplayDate(date: Date): string {
  * Ingests and converts a Canonical Workout Session into a structured HealthLogEntry
  */
 export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession): HealthLogEntry {
-  const sessionDateStr = (session.date || '').split('T')[0] || new Date().toISOString().split('T')[0];
+  const sessionDateStr = normalizeDateStr(session.date);
   const dateParts = sessionDateStr.split('-');
   const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
   const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
@@ -128,9 +210,10 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
   }
 
   const d = new Date(year, month, day, startHour, startMin);
-  const isoTimestamp = d.toISOString();
-  const displayDate = formatDisplayDate(d);
-  const displayTime = formatDisplayTime(d);
+  const isValidDate = !isNaN(d.getTime());
+  const isoTimestamp = isValidDate ? d.toISOString() : new Date().toISOString();
+  const displayDate = isValidDate ? formatDisplayDate(d) : formatDisplayDate(new Date());
+  const displayTime = isValidDate ? formatDisplayTime(d) : formatDisplayTime(new Date());
 
   // Determine time bucket
   let timeBucket: TimeBucket = 'Morning';
@@ -182,6 +265,7 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
     headline,
     caloriesBurned: session.caloriesActualHr || session.caloriesEstMet || Math.round((session.durationMinutes || 45) * 6),
     activeMinutes: session.durationMinutes || 45,
+    heartRate: session.avgHeartRateBpm,
     timeBucket,
     processed: true
   };
@@ -192,7 +276,7 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
  */
 export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealthRecord): HealthLogEntry[] {
   const entries: HealthLogEntry[] = [];
-  const dateStr = (record.date || '').split('T')[0] || new Date().toISOString().split('T')[0];
+  const dateStr = normalizeDateStr(record.date);
   const dateParts = dateStr.split('-');
   const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
   const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
@@ -218,13 +302,16 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
 
     entries.push({
       id: `import-sleep-${dateStr}`,
-      timestamp: sleepDate.toISOString(),
+      timestamp: !isNaN(sleepDate.getTime()) ? sleepDate.toISOString() : new Date().toISOString(),
       displayTime: formatDisplayTime(sleepDate),
       displayDate: formatDisplayDate(sleepDate),
       transcript: lines.join('\n'),
       category: 'general',
       source: 'manual',
       headline: 'Sleep Architecture',
+      sleepMinutes: record.sleep.totalSleepMinutes,
+      sleepHours: parseFloat(totalHours),
+      sleepEfficiency: record.sleep.sleepEfficiencyScore,
       timeBucket: 'Morning',
       processed: true
     });
@@ -249,7 +336,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
 
     entries.push({
       id: `import-activity-${dateStr}`,
-      timestamp: actDate.toISOString(),
+      timestamp: !isNaN(actDate.getTime()) ? actDate.toISOString() : new Date().toISOString(),
       displayTime: formatDisplayTime(actDate),
       displayDate: formatDisplayDate(actDate),
       transcript: lines.join('\n'),
@@ -258,6 +345,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       headline: 'Daily Step Activity',
       caloriesBurned: activeCal,
       activeMinutes: activeMins,
+      steps: steps > 0 ? steps : undefined,
       timeBucket: 'Evening',
       processed: true
     });
@@ -268,8 +356,10 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
     const vitDate = new Date(year, month, day, 9, 30);
     const lines: string[] = [`🩺 Biometric Vitals Sync:`];
     
+    let rhrVal: number | undefined = undefined;
     if (record.vitals.restingHeartRateBpm?.avg || record.vitals.restingHeartRateBpm?.min) {
       const rhr = record.vitals.restingHeartRateBpm.avg || record.vitals.restingHeartRateBpm.min;
+      rhrVal = rhr;
       const min = record.vitals.restingHeartRateBpm.min;
       const max = record.vitals.restingHeartRateBpm.max;
       if (min !== undefined && max !== undefined && (min !== max || min !== rhr)) {
@@ -295,13 +385,15 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
 
     entries.push({
       id: `import-vitals-${dateStr}`,
-      timestamp: vitDate.toISOString(),
+      timestamp: !isNaN(vitDate.getTime()) ? vitDate.toISOString() : new Date().toISOString(),
       displayTime: formatDisplayTime(vitDate),
       displayDate: formatDisplayDate(vitDate),
       transcript: lines.join('\n'),
       category: 'event',
       source: 'manual',
       headline: 'Vitals & Biomarkers',
+      restingHeartRate: rhrVal,
+      heartRate: record.vitals.heartRateBpm?.avg,
       timeBucket: 'Morning',
       processed: true
     });
@@ -320,7 +412,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
 
     entries.push({
       id: `import-body-${dateStr}`,
-      timestamp: bodyDate.toISOString(),
+      timestamp: !isNaN(bodyDate.getTime()) ? bodyDate.toISOString() : new Date().toISOString(),
       displayTime: formatDisplayTime(bodyDate),
       displayDate: formatDisplayDate(bodyDate),
       transcript: lines.join('\n'),
@@ -345,7 +437,26 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
   // 1. JSON Detection & Parsing
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      const data = JSON.parse(trimmed);
+      let data = JSON.parse(trimmed);
+
+      // Unwrap webhook wrapper or nested structures
+      if (typeof data?.jsonData === 'string') {
+        try { data = JSON.parse(data.jsonData); } catch (_) {}
+      } else if (data?.jsonData && typeof data.jsonData === 'object') {
+        data = data.jsonData;
+      }
+      if (data?.data && typeof data.data === 'object' && !data.workouts && !data.dailyRecords) {
+        data = data.data;
+      }
+      if (data?.payload && typeof data.payload === 'object' && !data.workouts && !data.dailyRecords) {
+        data = data.payload;
+      }
+      if (data?.records && !data.dailyRecords) {
+        data.dailyRecords = data.records;
+      }
+      if (data?.sessions && !data.workouts) {
+        data.workouts = data.sessions;
+      }
 
       // A. Canonical Workout Export JSON
       if (data.workouts && Array.isArray(data.workouts)) {
@@ -392,6 +503,47 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
           summary: `Imported ${data.length} daily biometric records`
         };
       }
+
+      // Direct array of flat daily health records
+      if (Array.isArray(data) && data.length > 0 && (data[0].steps !== undefined || data[0].Steps !== undefined || data[0].date !== undefined || data[0].Date !== undefined)) {
+        const healthRecords: CanonicalDailyHealthRecord[] = data.map((row: any) => {
+          const date = normalizeDateStr(row['date'] || row['Date'] || row['timestamp']);
+          const steps = parseInt(String(row['steps'] || row['Steps'] || row['step_count'] || '0'), 10);
+          const dist = parseFloat(String(row['distance_meters'] || row['Distance (m)'] || row['distance'] || '0'));
+          const totalCal = parseFloat(String(row['total_calories_kcal'] || row['Total Calories (kcal)'] || row['total_calories'] || '0'));
+          const activeCal = parseFloat(String(row['active_calories_kcal'] || row['Active Calories (kcal)'] || row['active_calories'] || '0'));
+          const activeMins = parseInt(String(row['active_duration_minutes'] || row['Active Time (min)'] || row['active_minutes'] || '0'), 10);
+          const totalSleep = parseInt(String(row['total_sleep_minutes'] || row['total_sleep'] || '0'), 10);
+          const rhrAvg = parseFloat(String(row['resting_hr_avg'] || row['resting_heart_rate'] || '0'));
+          const hrAvg = parseFloat(String(row['hr_avg'] || row['heart_rate'] || '0'));
+          return {
+            date,
+            sources: ['Import'],
+            activity: (steps > 0 || totalCal > 0 || activeCal > 0 || activeMins > 0) ? {
+              steps: steps > 0 ? steps : undefined,
+              distanceMeters: dist > 0 ? dist : undefined,
+              totalCaloriesKcal: totalCal > 0 ? totalCal : undefined,
+              activeCaloriesKcal: activeCal > 0 ? activeCal : undefined,
+              activeDurationMinutes: activeMins > 0 ? activeMins : undefined
+            } : {},
+            sleep: totalSleep > 0 ? { totalSleepMinutes: totalSleep } : {},
+            vitals: (rhrAvg > 0 || hrAvg > 0) ? {
+              restingHeartRateBpm: rhrAvg > 0 ? { avg: rhrAvg } : undefined,
+              heartRateBpm: hrAvg > 0 ? { avg: hrAvg } : undefined
+            } : {},
+            bodyMeasurements: row['weight_kg'] ? { weightKg: parseFloat(String(row['weight_kg'])) } : {}
+          };
+        });
+        const convertedLogs = healthRecords.flatMap(convertDailyHealthRecordToLogEntries);
+        if (convertedLogs.length > 0) {
+          return {
+            sourceType: 'health_json',
+            healthRecords,
+            convertedLogs,
+            summary: `Imported ${healthRecords.length} daily health records (${convertedLogs.length} logs created)`
+          };
+        }
+      }
     } catch (err: any) {
       console.warn('JSON parsing attempt failed, checking CSV:', err);
     }
@@ -418,8 +570,8 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       const sessionMap = new Map<string, CanonicalWorkoutSession>();
 
       rows.forEach((row) => {
-        const date = (row['date'] || row['Date'] || row['Start Date'] || new Date().toISOString().split('T')[0]).split('T')[0];
-        const title = row['title'] || row['Workout Title'] || row['Workout Name'] || 'Gym Workout';
+        const date = normalizeDateStr(row['date'] || row['Date'] || row['Start Date'] || row['start_time']);
+        const title = row['title'] || row['Workout Title'] || row['Workout Name'] || row['Routine'] || 'Gym Workout';
         const workoutId = row['workout_id'] || row['Workout ID'] || row['Hevy Workout ID'] || `${date}-${title.replace(/\s+/g, '_')}`;
         const rowNotes = (row['notes'] || row['Workout Notes'] || row['Notes'] || '').trim();
 
@@ -430,7 +582,7 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             title,
             startTime: row['start_time'] || row['Start Time'] || '08:00',
             endTime: row['end_time'] || row['End Time'] || '',
-            durationMinutes: parseFloat(row['duration_minutes'] || row['Duration (min)'] || row['duration'] || '45') || 45,
+            durationMinutes: parseDurationMinutes(row['duration_minutes'] || row['Duration (min)'] || row['Duration'] || row['duration']),
             totalVolumeKg: parseFloat(row['total_volume_kg'] || row['Total Volume (kg)'] || '0') || 0,
             totalSets: parseInt(row['total_sets'] || row['Total Sets'] || '0', 10) || 0,
             avgHeartRateBpm: parseFloat(row['avg_hr_bpm'] || row['Avg Heart Rate (bpm)'] || row['Avg Heart Rate'] || '0') || undefined,
@@ -506,7 +658,7 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
     const dailyMap = new Map<string, CanonicalDailyHealthRecord>();
 
     rows.forEach(row => {
-      const date = row['date'] || row['Date'] || row['Date/Time']?.split(' ')[0] || new Date().toISOString().split('T')[0];
+      const date = normalizeDateStr(row['date'] || row['Date'] || row['Date/Time'] || row['Timestamp'] || row['start_time']);
       if (!dailyMap.has(date)) {
         const rawSources = row['sources'] || row['Source(s)'] || row['source'] || 'HealthConnect';
         const sources = typeof rawSources === 'string' ? rawSources.split(';').map(s => s.trim()).filter(Boolean) : ['HealthConnect'];

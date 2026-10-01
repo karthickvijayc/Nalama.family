@@ -59,13 +59,21 @@ export async function executeExternalDataSync(
     // 1. Ensure folder hierarchy exists in Drive: /nalama.family/imports/{health_data, gym_workouts}
     const { importsFolderId, healthFolderId, workoutFolderId } = await getOrCreateImportsFolders(token, mainFolderId);
 
-    // 2. Scan both import folders for candidate files
-    const [healthFiles, workoutFiles] = await Promise.all([
+    // 2. Scan import folders for candidate files: root /imports/, /imports/health_data/, /imports/gym_workouts/
+    const [rootImportsFiles, healthFiles, workoutFiles] = await Promise.all([
+      listImportFolderFiles(token, importsFolderId),
       listImportFolderFiles(token, healthFolderId),
       listImportFolderFiles(token, workoutFolderId)
     ]);
 
-    const totalFiles = healthFiles.length + workoutFiles.length;
+    const isNotFolder = (f: { mimeType: string }) => f.mimeType !== 'application/vnd.google-apps.folder';
+    const allFiles = [
+      ...rootImportsFiles.filter(isNotFolder).map(f => ({ ...f, folderType: 'root' as const })),
+      ...healthFiles.filter(isNotFolder).map(f => ({ ...f, folderType: 'health' as const })),
+      ...workoutFiles.filter(isNotFolder).map(f => ({ ...f, folderType: 'workout' as const }))
+    ];
+
+    const totalFiles = allFiles.length;
     if (totalFiles === 0) {
       const summaryMsg = 'No import files found in /nalama.family/imports/';
       onProgress?.({
@@ -82,10 +90,6 @@ export async function executeExternalDataSync(
     }
 
     const fileHashes: Record<string, string> = { ...(userProfile?.lastImportFileHashes || {}) };
-    const allFiles = [
-      ...healthFiles.map(f => ({ ...f, folderType: 'health' as const })),
-      ...workoutFiles.map(f => ({ ...f, folderType: 'workout' as const }))
-    ];
 
     // Check which files have changed since the last successful sync
     const filesToProcess = forceSync ? allFiles : allFiles.filter(f => {
@@ -124,12 +128,17 @@ export async function executeExternalDataSync(
         const lower = file.name.toLowerCase();
         let res: ParseResult;
 
-        if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-          const binaryBuffer = await readBinaryDriveFile(token, file.id);
+        const isExcelOrSpreadsheet = 
+          file.mimeType === 'application/vnd.google-apps.spreadsheet' || 
+          lower.endsWith('.xlsx') || 
+          lower.endsWith('.xls');
+
+        if (isExcelOrSpreadsheet) {
+          const binaryBuffer = await readBinaryDriveFile(token, file.id, file.mimeType);
           if (!binaryBuffer) continue;
           res = parseExcelBuffer(file.name, binaryBuffer);
         } else {
-          const rawContent = await readRawDriveFile(token, file.id);
+          const rawContent = await readRawDriveFile(token, file.id, file.mimeType);
           if (!rawContent) continue;
           res = parseImportFileContent(file.name, rawContent);
         }
@@ -172,10 +181,16 @@ export async function executeExternalDataSync(
     // 4. Group logs by Target Monthly Partition (e.g., 2026-09 -> logs_2026_09.json)
     const logsByMonth = new Map<string, HealthLogEntry[]>();
     for (const log of allNewLogs) {
-      const logDate = new Date(log.timestamp);
-      const year = !isNaN(logDate.getTime()) ? logDate.getFullYear() : new Date().getFullYear();
-      const monthNum = !isNaN(logDate.getTime()) ? String(logDate.getMonth() + 1).padStart(2, '0') : String(new Date().getMonth() + 1).padStart(2, '0');
-      const monthKey = `${year}-${monthNum}`;
+      let monthKey = '';
+      const idMatch = log.id.match(/(\d{4})-(\d{2})/);
+      if (idMatch) {
+        monthKey = `${idMatch[1]}-${idMatch[2]}`;
+      } else {
+        const logDate = new Date(log.timestamp);
+        const year = !isNaN(logDate.getTime()) ? logDate.getFullYear() : new Date().getFullYear();
+        const monthNum = !isNaN(logDate.getTime()) ? String(logDate.getMonth() + 1).padStart(2, '0') : String(new Date().getMonth() + 1).padStart(2, '0');
+        monthKey = `${year}-${monthNum}`;
+      }
 
       if (!logsByMonth.has(monthKey)) {
         logsByMonth.set(monthKey, []);

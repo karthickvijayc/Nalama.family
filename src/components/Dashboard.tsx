@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket } from '../types';
-import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName } from '../lib/drive';
+import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName, listMonthlyLogFiles } from '../lib/drive';
 
 type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
@@ -163,71 +163,18 @@ function getBucketIcon(bucket: TimeBucket) {
 }
 
 
-const INITIAL_ACTIVITIES: Omit<ActivityEntry, 'timeBucket' | 'dateKey' | 'dateLabel' | 'dayName'>[] = [
-  {
-    id: 'act-1',
-    time: '07:15 AM',
-    category: 'workout',
-    title: 'Morning Brisk Walk & Mobility',
-    subtitle: '35 mins in community park • 2.4 km • Gentle pace',
-    status: 'completed',
-  },
-  {
-    id: 'act-2',
-    time: '08:30 AM',
-    category: 'meal',
-    title: 'Breakfast: Idlis & Sambar',
-    subtitle: '3 steamed idlis, vegetable sambar, herbal tea',
-  },
-  {
-    id: 'act-3',
-    time: '09:00 AM',
-    category: 'medication',
-    title: 'Blood Pressure Tablet (Amlodipine 5mg)',
-    subtitle: 'Take with warm water after breakfast',
-    status: 'completed',
-  },
-  {
-    id: 'act-4',
-    time: '11:45 AM',
-    category: 'event',
-    title: 'Resting Blood Pressure Check',
-    subtitle: '122/80 mmHg • Normal resting pulse (68 bpm)',
-  },
-  {
-    id: 'act-5',
-    time: '01:30 PM',
-    category: 'meal',
-    title: 'Lunch: Rice, Keerai Kootu & Curd',
-    subtitle: 'Red rice, spinach lentil stew, cucumber salad, buttermilk',
-  },
-  {
-    id: 'act-6',
-    time: '05:30 PM',
-    category: 'workout',
-    title: 'Evening Stretching & Breathing',
-    subtitle: '15 mins seated yoga stretches & deep breathing',
-    status: 'pending',
-  },
-  {
-    id: 'act-7',
-    time: '08:00 PM',
-    category: 'medication',
-    title: 'Calcium & Vitamin D3 Tablet',
-    subtitle: 'Take after dinner',
-    status: 'pending',
-  },
-];
-
 export default function Dashboard({ driveState, refreshTrigger, userProfile, user }: DashboardProps) {
   const [routineActivities, setRoutineActivities] = useState<ActivityEntry[]>([]);
   const [logStatusOverrides, setLogStatusOverrides] = useState<Record<string, 'completed' | 'pending'>>({});
   const [selectedFilter, setSelectedFilter] = useState<ActivityCategory>('all');
   const [healthLogs, setHealthLogs] = useState<HealthLogEntry[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [todayCaloriesConsumed, setTodayCaloriesConsumed] = useState(0);
-  const [todayCaloriesBurned, setTodayCaloriesBurned] = useState(0);
-  const [todayActiveMinutes, setTodayActiveMinutes] = useState(0);
+  const [todayCaloriesConsumed, setTodayCaloriesConsumed] = useState<number | null>(null);
+  const [todayCaloriesBurned, setTodayCaloriesBurned] = useState<number | null>(null);
+  const [todayActiveMinutes, setTodayActiveMinutes] = useState<number | null>(null);
+  const [todaySteps, setTodaySteps] = useState<number | null>(null);
+  const [todayHeartRate, setTodayHeartRate] = useState<number | null>(null);
+  const [todaySleep, setTodaySleep] = useState<{ hours: number; efficiency?: number } | null>(null);
   const [activeFileName, setActiveFileName] = useState<string>('logs.json');
   const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
@@ -235,16 +182,13 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   useEffect(() => {
     async function loadDashboardData() {
       if (!driveState?.token) {
-        setRoutineActivities(INITIAL_ACTIVITIES.map(a => ({
-          ...a,
-          timeBucket: inferTimeBucketFromTime(a.time),
-          dateKey: 'today',
-          dateLabel: 'Today',
-          dayName: 'Today'
-        })));
-        setTodayCaloriesConsumed(1450);
-        setTodayCaloriesBurned(380);
-        setTodayActiveMinutes(45);
+        setRoutineActivities([]);
+        setTodayCaloriesConsumed(null);
+        setTodayCaloriesBurned(null);
+        setTodayActiveMinutes(null);
+        setTodaySteps(null);
+        setTodayHeartRate(null);
+        setTodaySleep(null);
         return;
       }
 
@@ -279,13 +223,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
               });
               setRoutineActivities(mappedRoutines);
             } else {
-              setRoutineActivities(INITIAL_ACTIVITIES.map(a => ({
-                ...a,
-                timeBucket: inferTimeBucketFromTime(a.time),
-                dateKey: 'today',
-                dateLabel: 'Today',
-                dayName: 'Today'
-              })));
+              setRoutineActivities([]);
             }
           }
         }
@@ -295,53 +233,169 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         setActiveFileName(fileName);
         setActiveMonthDisplay(monthKey);
         const logData = await readJsonFile(driveState.token, fileId);
+        let logs: HealthLogEntry[] = [];
         if (logData && Array.isArray(logData.logs)) {
-          setHealthLogs(logData.logs);
+          logs = logData.logs;
+        }
 
-          // Calculate today's calories consumed, calories burned & active minutes
-          const todayDateStr = new Date().toDateString();
-          let consumed = 0;
-          let burned = 0;
-          let activeMins = 0;
-          let foundTodayMeal = false;
-          let foundTodayWorkout = false;
+        // If current month has no logs, inspect other monthly partition files in Drive so imported data is immediately shown
+        if (logs.length === 0) {
+          const monthlyFiles = await listMonthlyLogFiles(driveState.token, driveState.mainFolderId);
+          for (const mFile of monthlyFiles) {
+            if (mFile.id !== fileId) {
+              const pastData = await readJsonFile(driveState.token, mFile.id);
+              if (pastData && Array.isArray(pastData.logs) && pastData.logs.length > 0) {
+                logs = pastData.logs;
+                setActiveFileName(mFile.name);
+                setActiveMonthDisplay(mFile.month);
+                break;
+              }
+            }
+          }
+        }
 
-          logData.logs.forEach((log: HealthLogEntry) => {
-            const logDateStr = new Date(log.timestamp).toDateString();
-            if (logDateStr === todayDateStr) {
-              if (log.category === 'meal') {
-                foundTodayMeal = true;
-                consumed += (typeof log.calories === 'number' ? log.calories : 0);
-              } else if (log.category === 'workout') {
-                foundTodayWorkout = true;
-                burned += (typeof log.caloriesBurned === 'number' ? log.caloriesBurned : (typeof log.calories === 'number' ? log.calories : 0));
-                if (typeof log.activeMinutes === 'number') {
-                  activeMins += log.activeMinutes;
+        setHealthLogs(logs);
+
+        // Calculate today's real stats from logs
+        const todayInfo = getDateInfo(new Date());
+        let consumed: number | null = null;
+        let burned: number | null = null;
+        let activeMins: number | null = null;
+        let steps: number | null = null;
+        let heartRate: number | null = null;
+        let sleep: { hours: number; efficiency?: number } | null = null;
+
+        logs.forEach((log: HealthLogEntry) => {
+          const logDate = log.timestamp ? new Date(log.timestamp) : null;
+          const isToday = logDate && !isNaN(logDate.getTime()) && getDateInfo(logDate).dateKey === todayInfo.dateKey;
+          
+          if (isToday) {
+            // Meals / Calories consumed
+            if (log.category === 'meal') {
+              if (typeof log.calories === 'number' && log.calories > 0) {
+                consumed = (consumed || 0) + log.calories;
+              } else {
+                const calMatch = log.transcript?.match(/(\d+)\s*(?:kcal|calories)/i);
+                if (calMatch) {
+                  consumed = (consumed || 0) + parseInt(calMatch[1], 10);
                 }
               }
             }
-          });
 
-          setTodayCaloriesConsumed(foundTodayMeal ? consumed : (consumed > 0 ? consumed : 1450));
-          setTodayCaloriesBurned(foundTodayWorkout ? burned : (burned > 0 ? burned : 380));
-          setTodayActiveMinutes(foundTodayWorkout ? activeMins : (activeMins > 0 ? activeMins : 45));
-        } else {
-          setTodayCaloriesConsumed(1450);
-          setTodayCaloriesBurned(380);
-          setTodayActiveMinutes(45);
+            // Workouts & active minutes & calories burned
+            if (log.category === 'workout') {
+              const calBurn = typeof log.caloriesBurned === 'number' 
+                ? log.caloriesBurned 
+                : (typeof log.calories === 'number' ? log.calories : undefined);
+              if (calBurn !== undefined && calBurn > 0) {
+                burned = (burned || 0) + calBurn;
+              } else {
+                const burnMatch = log.transcript?.match(/(\d+)\s*(?:kcal burned|calories burned)/i);
+                if (burnMatch) {
+                  burned = (burned || 0) + parseInt(burnMatch[1], 10);
+                }
+              }
+
+              if (typeof log.activeMinutes === 'number' && log.activeMinutes > 0) {
+                activeMins = (activeMins || 0) + log.activeMinutes;
+              } else {
+                const minMatch = log.transcript?.match(/(\d+)\s*(?:mins|minutes)/i);
+                if (minMatch) {
+                  activeMins = (activeMins || 0) + parseInt(minMatch[1], 10);
+                }
+              }
+            }
+
+            // Steps (could be on activity or workout log)
+            if (typeof log.steps === 'number' && log.steps > 0) {
+              steps = Math.max(steps || 0, log.steps);
+            } else {
+              const stepMatch = log.transcript?.match(/([\d,]+)\s*steps/i);
+              if (stepMatch) {
+                const parsedSteps = parseInt(stepMatch[1].replace(/,/g, ''), 10);
+                if (!isNaN(parsedSteps) && parsedSteps > 0) {
+                  steps = Math.max(steps || 0, parsedSteps);
+                }
+              }
+            }
+
+            // Heart Rate / Resting Heart Rate
+            if (typeof log.restingHeartRate === 'number' && log.restingHeartRate > 0) {
+              heartRate = log.restingHeartRate;
+            } else if (typeof log.heartRate === 'number' && log.heartRate > 0 && heartRate === null) {
+              heartRate = log.heartRate;
+            } else if (heartRate === null) {
+              const hrMatch = log.transcript?.match(/(\d{2,3})\s*bpm/i);
+              if (hrMatch) {
+                const parsedHr = parseInt(hrMatch[1], 10);
+                if (!isNaN(parsedHr) && parsedHr >= 40 && parsedHr <= 200) {
+                  heartRate = parsedHr;
+                }
+              }
+            }
+
+            // Sleep logged today (e.g. woke up today morning)
+            if (typeof log.sleepHours === 'number' && log.sleepHours > 0) {
+              sleep = { hours: log.sleepHours, efficiency: log.sleepEfficiency };
+            } else if (sleep === null) {
+              const sleepMatch = log.transcript?.match(/(\d+(?:\.\d+)?)\s*(?:hrs?|hours)\s*(?:total\s*)?sleep/i);
+              if (sleepMatch) {
+                const parsedHours = parseFloat(sleepMatch[1]);
+                if (!isNaN(parsedHours) && parsedHours > 0) {
+                  const effMatch = log.transcript?.match(/Efficiency:\s*(\d+)%/i);
+                  sleep = { 
+                    hours: parsedHours, 
+                    efficiency: effMatch ? parseInt(effMatch[1], 10) : undefined 
+                  };
+                }
+              }
+            }
+          }
+        });
+
+        // If no sleep was logged today morning, check if sleep was logged yesterday
+        if (!sleep) {
+          const yesterdayInfo = getDateInfo(new Date(Date.now() - 86400000));
+          for (const log of logs) {
+            const logDate = log.timestamp ? new Date(log.timestamp) : null;
+            const isYesterday = logDate && !isNaN(logDate.getTime()) && getDateInfo(logDate).dateKey === yesterdayInfo.dateKey;
+            if (isYesterday) {
+              if (typeof log.sleepHours === 'number' && log.sleepHours > 0) {
+                sleep = { hours: log.sleepHours, efficiency: log.sleepEfficiency };
+                break;
+              } else {
+                const sleepMatch = log.transcript?.match(/(\d+(?:\.\d+)?)\s*(?:hrs?|hours)\s*(?:total\s*)?sleep/i);
+                if (sleepMatch) {
+                  const parsedHours = parseFloat(sleepMatch[1]);
+                  if (!isNaN(parsedHours) && parsedHours > 0) {
+                    const effMatch = log.transcript?.match(/Efficiency:\s*(\d+)%/i);
+                    sleep = { 
+                      hours: parsedHours, 
+                      efficiency: effMatch ? parseInt(effMatch[1], 10) : undefined 
+                    };
+                    break;
+                  }
+                }
+              }
+            }
+          }
         }
+
+        setTodayCaloriesConsumed(consumed);
+        setTodayCaloriesBurned(burned);
+        setTodayActiveMinutes(activeMins);
+        setTodaySteps(steps);
+        setTodayHeartRate(heartRate);
+        setTodaySleep(sleep);
       } catch (err) {
         console.warn('Could not load dashboard data from Drive:', err);
-        setRoutineActivities(INITIAL_ACTIVITIES.map(a => ({
-          ...a,
-          timeBucket: inferTimeBucketFromTime(a.time),
-          dateKey: 'today',
-          dateLabel: 'Today',
-          dayName: 'Today'
-        })));
-        setTodayCaloriesConsumed(1450);
-        setTodayCaloriesBurned(380);
-        setTodayActiveMinutes(45);
+        setRoutineActivities([]);
+        setTodayCaloriesConsumed(null);
+        setTodayCaloriesBurned(null);
+        setTodayActiveMinutes(null);
+        setTodaySteps(null);
+        setTodayHeartRate(null);
+        setTodaySleep(null);
       } finally {
         setIsLoadingLogs(false);
       }
@@ -430,7 +484,11 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
 
     const TIME_BUCKET_ORDER: TimeBucket[] = ['Morning', 'Afternoon', 'Evening', 'Night'];
 
-    return Object.entries(groups).map(([dateKey, groupData]) => {
+    const sortedGroups = Object.entries(groups).sort(([, a], [, b]) => {
+      return b.rawDate.getTime() - a.rawDate.getTime();
+    });
+
+    return sortedGroups.map(([dateKey, groupData]) => {
       groupData.items.sort((a, b) => ((b as any)._sortTime as number) - ((a as any)._sortTime as number));
       
       const timeBuckets: Record<TimeBucket, ActivityEntry[]> = {
@@ -492,15 +550,13 @@ const toggleDateCollapse = (dateKey: string) => {
   const targetSteps = userProfile?.userTargets?.steps || userProfile?.aiTargets?.steps || 6000;
   const targetActiveTime = userProfile?.userTargets?.activeTimeMins || userProfile?.aiTargets?.activeTimeMins || 30;
   const targetHR = userProfile?.userTargets?.restingHeartRate || userProfile?.aiTargets?.restingHeartRate || 65;
-  const currentSteps = 4320; // Mocked real-time value
-  const currentActiveTime = todayActiveMinutes;
 
   // Task Completion
   const todayRoutines = routineActivities;
   const completedRoutines = todayRoutines.filter(r => (logStatusOverrides[r.id] || r.status) === 'completed').length;
-  const totalRoutines = todayRoutines.length || 1;
-  const taskCompletionText = todayRoutines.length > 0 ? `${completedRoutines} out of ${todayRoutines.length} today's tasks completed` : 'No tasks scheduled';
-  const taskCompletionPercentage = todayRoutines.length > 0 ? Math.round((completedRoutines/totalRoutines)*100).toString() : "0";
+  const hasTasks = todayRoutines.length > 0;
+  const taskCompletionText = hasTasks ? `${completedRoutines} out of ${todayRoutines.length} today's tasks completed` : 'No tasks scheduled';
+  const taskCompletionPercentage = hasTasks ? Math.round((completedRoutines / todayRoutines.length) * 100).toString() : "-";
 
   return (
     <div className="flex flex-col gap-6 pt-6 pb-32 bg-[#F9F7F4] min-h-screen relative">
@@ -520,14 +576,14 @@ const toggleDateCollapse = (dateKey: string) => {
           <VitalCard 
             icon={<Footprints size={24} className="text-tree-600" />} 
             title="Daily Steps" 
-            value={currentSteps.toLocaleString()} 
+            value={todaySteps !== null ? todaySteps.toLocaleString() : "-"} 
             subtitle={`Goal: ${targetSteps.toLocaleString()}`} 
           />
           <VitalCard 
             icon={<Activity size={24} className="text-blue-500" />} 
             title="Active Time" 
-            value={currentActiveTime.toString()} 
-            unit="m" 
+            value={todayActiveMinutes !== null ? todayActiveMinutes.toString() : "-"} 
+            unit={todayActiveMinutes !== null ? "m" : undefined} 
             subtitle={`Goal: ${targetActiveTime}m`} 
           />
         </div>
@@ -537,15 +593,15 @@ const toggleDateCollapse = (dateKey: string) => {
           <VitalCard 
             icon={<Heart size={24} className="text-rose-500" />} 
             title="Heart Rate" 
-            value="68" 
-            unit="bpm" 
+            value={todayHeartRate !== null ? String(todayHeartRate) : "-"} 
+            unit={todayHeartRate !== null ? "bpm" : undefined} 
             subtitle={`Target Resting: ${targetHR} bpm`} 
           />
           <VitalCard 
             icon={<Target size={24} className="text-purple-500" />} 
             title="Daily Tasks" 
-            value={taskCompletionPercentage} 
-            unit="%" 
+            value={hasTasks ? taskCompletionPercentage : "-"} 
+            unit={hasTasks ? "%" : undefined} 
             subtitle={taskCompletionText} 
           />
         </div>
@@ -591,16 +647,22 @@ const toggleDateCollapse = (dateKey: string) => {
                   Consumed (Intake)
                 </span>
                 <span className="text-stone-900">
-                  {todayCaloriesConsumed.toLocaleString()} <span className="text-stone-400 font-normal">/ {targetCalories.toLocaleString()} kcal</span>
-                  <span className="ml-1.5 text-xs font-extrabold text-orange-600">
-                    ({Math.round((todayCaloriesConsumed / targetCalories) * 100)}%)
-                  </span>
+                  {todayCaloriesConsumed !== null ? (
+                    <>
+                      {todayCaloriesConsumed.toLocaleString()} <span className="text-stone-400 font-normal">/ {targetCalories.toLocaleString()} kcal</span>
+                      <span className="ml-1.5 text-xs font-extrabold text-orange-600">
+                        ({Math.round((todayCaloriesConsumed / targetCalories) * 100)}%)
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-stone-400 font-bold">-</span>
+                  )}
                 </span>
               </div>
               <div className="relative h-3 w-full bg-stone-200/80 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-linear-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-700" 
-                  style={{ width: `${Math.min((todayCaloriesConsumed / targetCalories) * 100, 100)}%` }}
+                  style={{ width: `${todayCaloriesConsumed !== null ? Math.min((todayCaloriesConsumed / targetCalories) * 100, 100) : 0}%` }}
                 />
               </div>
             </div>
@@ -613,13 +675,19 @@ const toggleDateCollapse = (dateKey: string) => {
                   Burned (Active Workout)
                 </span>
                 <span className="text-stone-900">
-                  {todayCaloriesBurned.toLocaleString()} <span className="text-stone-400 font-normal">kcal burned</span>
+                  {todayCaloriesBurned !== null ? (
+                    <>
+                      {todayCaloriesBurned.toLocaleString()} <span className="text-stone-400 font-normal">kcal burned</span>
+                    </>
+                  ) : (
+                    <span className="text-stone-400 font-bold">-</span>
+                  )}
                 </span>
               </div>
               <div className="relative h-3 w-full bg-stone-200/80 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-linear-to-r from-teal-400 to-emerald-500 rounded-full transition-all duration-700" 
-                  style={{ width: `${Math.min((todayCaloriesBurned / (targetCalories * 0.4)) * 100, 100)}%` }} 
+                  style={{ width: `${todayCaloriesBurned !== null ? Math.min((todayCaloriesBurned / (targetCalories * 0.4)) * 100, 100) : 0}%` }} 
                 />
               </div>
             </div>
@@ -628,19 +696,27 @@ const toggleDateCollapse = (dateKey: string) => {
             <div className="pt-2 border-t border-stone-200/70">
               <div className="flex justify-between items-center text-[11px] font-bold text-stone-500 mb-1.5">
                 <span>Visual Comparison (Intake vs. Burn)</span>
-                <span>{todayCaloriesConsumed} in • {todayCaloriesBurned} out</span>
+                <span>
+                  {todayCaloriesConsumed !== null ? `${todayCaloriesConsumed} in` : '- in'} • {todayCaloriesBurned !== null ? `${todayCaloriesBurned} out` : '- out'}
+                </span>
               </div>
               <div className="h-3.5 w-full bg-stone-200 rounded-full flex overflow-hidden p-0.5 gap-0.5 shadow-2xs">
-                <div 
-                  className="h-full bg-orange-500 rounded-l-full transition-all duration-500" 
-                  style={{ width: `${Math.max(10, Math.min(85, (todayCaloriesConsumed / (todayCaloriesConsumed + todayCaloriesBurned || 1)) * 100))}%` }}
-                  title={`Consumed: ${todayCaloriesConsumed} kcal`}
-                />
-                <div 
-                  className="h-full bg-teal-500 rounded-r-full transition-all duration-500" 
-                  style={{ width: `${Math.max(10, Math.min(85, (todayCaloriesBurned / (todayCaloriesConsumed + todayCaloriesBurned || 1)) * 100))}%` }}
-                  title={`Burned: ${todayCaloriesBurned} kcal`}
-                />
+                {(todayCaloriesConsumed || todayCaloriesBurned) ? (
+                  <>
+                    <div 
+                      className="h-full bg-orange-500 rounded-l-full transition-all duration-500" 
+                      style={{ width: `${Math.max(10, Math.min(85, ((todayCaloriesConsumed || 0) / ((todayCaloriesConsumed || 0) + (todayCaloriesBurned || 0) || 1)) * 100))}%` }}
+                      title={`Consumed: ${todayCaloriesConsumed || 0} kcal`}
+                    />
+                    <div 
+                      className="h-full bg-teal-500 rounded-r-full transition-all duration-500" 
+                      style={{ width: `${Math.max(10, Math.min(85, ((todayCaloriesBurned || 0) / ((todayCaloriesConsumed || 0) + (todayCaloriesBurned || 0) || 1)) * 100))}%` }}
+                      title={`Burned: ${todayCaloriesBurned || 0} kcal`}
+                    />
+                  </>
+                ) : (
+                  <div className="h-full w-full bg-stone-100 rounded-full" />
+                )}
               </div>
             </div>
           </div>
@@ -649,22 +725,41 @@ const toggleDateCollapse = (dateKey: string) => {
           <div className="grid grid-cols-3 gap-2.5 text-center">
             <div className="bg-orange-50/70 border border-orange-200/70 rounded-xl p-2.5 flex flex-col">
               <span className="text-[10px] font-bold uppercase tracking-wider text-orange-700">Intake</span>
-              <span className="text-base font-extrabold text-stone-900 mt-0.5">{todayCaloriesConsumed.toLocaleString()}</span>
-              <span className="text-[10px] text-orange-600 font-semibold">kcal consumed</span>
+              <span className="text-base font-extrabold text-stone-900 mt-0.5">
+                {todayCaloriesConsumed !== null ? todayCaloriesConsumed.toLocaleString() : "-"}
+              </span>
+              <span className="text-[10px] text-orange-600 font-semibold">
+                {todayCaloriesConsumed !== null ? "kcal consumed" : "no data"}
+              </span>
             </div>
             <div className="bg-teal-50/70 border border-teal-200/70 rounded-xl p-2.5 flex flex-col">
               <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Burned</span>
-              <span className="text-base font-extrabold text-stone-900 mt-0.5">{todayCaloriesBurned.toLocaleString()}</span>
-              <span className="text-[10px] text-teal-600 font-semibold">kcal active</span>
+              <span className="text-base font-extrabold text-stone-900 mt-0.5">
+                {todayCaloriesBurned !== null ? todayCaloriesBurned.toLocaleString() : "-"}
+              </span>
+              <span className="text-[10px] text-teal-600 font-semibold">
+                {todayCaloriesBurned !== null ? "kcal active" : "no data"}
+              </span>
             </div>
             <div className="bg-stone-50 border border-stone-200/80 rounded-xl p-2.5 flex flex-col">
               <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Net Calories</span>
-              <span className={`text-base font-extrabold mt-0.5 ${(todayCaloriesConsumed - todayCaloriesBurned) > targetCalories ? 'text-rose-600' : 'text-stone-900'}`}>
-                {todayCaloriesConsumed - todayCaloriesBurned > 0 ? `+${(todayCaloriesConsumed - todayCaloriesBurned).toLocaleString()}` : (todayCaloriesConsumed - todayCaloriesBurned).toLocaleString()}
-              </span>
-              <span className="text-[10px] text-stone-500 font-semibold">
-                {(todayCaloriesConsumed - todayCaloriesBurned) > targetCalories ? 'Over target' : 'Within target'}
-              </span>
+              {todayCaloriesConsumed !== null || todayCaloriesBurned !== null ? (
+                <>
+                  <span className={`text-base font-extrabold mt-0.5 ${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'text-rose-600' : 'text-stone-900'}`}>
+                    {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > 0 
+                      ? `+${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}` 
+                      : ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-semibold">
+                    {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'Over target' : 'Within target'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-base font-extrabold mt-0.5 text-stone-400">-</span>
+                  <span className="text-[10px] text-stone-400 font-semibold">no data</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -674,9 +769,13 @@ const toggleDateCollapse = (dateKey: string) => {
           className="w-full border-stone-200/90 hover:border-canopy-200 transition-colors" 
           icon={<Moon size={24} className="text-canopy-600" />} 
           title="Sleep Recovery" 
-          value="7.2" 
-          unit="hrs" 
-          subtitle="Restful sleep • 84% recovery score" 
+          value={todaySleep !== null ? String(todaySleep.hours) : "-"} 
+          unit={todaySleep !== null ? "hrs" : undefined} 
+          subtitle={
+            todaySleep 
+              ? (todaySleep.efficiency ? `Restful sleep • ${todaySleep.efficiency}% recovery score` : 'Restful sleep')
+              : 'No sleep data logged'
+          } 
         />
       </section>
 
@@ -829,7 +928,7 @@ function VitalCard({ icon, title, value, unit, subtitle, className = '' }: { ico
       </div>
       <div className="flex items-baseline gap-1 mt-1">
         <span className="text-4xl font-extrabold text-stone-900 tracking-tight">{value}</span>
-        {unit ? <span className="text-lg text-stone-500 font-bold">{unit}</span> : null}
+        {unit && value !== '-' ? <span className="text-lg text-stone-500 font-bold">{unit}</span> : null}
       </div>
       <div className="text-stone-500 text-base font-medium">{subtitle}</div>
     </div>

@@ -38,9 +38,7 @@ import {
   EyeOff,
   Sliders,
   Smartphone,
-  Download,
-  FileSpreadsheet,
-  Copy
+  Download
 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { getFolderPermissions, addFolderPermission, removeFolderPermission } from '../lib/drive';
@@ -48,7 +46,7 @@ import { DriveState, UserProfile, UserTargets } from '../types';
 import { getCustomGeminiApiKey, setCustomGeminiApiKey, getAiFetchHeaders } from '../lib/geminiApiKey';
 import { User as FirebaseUser } from 'firebase/auth';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
-import { COMPANION_APP_INFO, UNIVERSAL_APPS_SCRIPT_CODE } from '../lib/companionConstants';
+import { COMPANION_APP_INFO } from '../lib/companionConstants';
 
 interface SettingsProps {
   onLogout?: () => void;
@@ -105,13 +103,6 @@ export default function Settings({
   // External data import toggle state
   const [enableExternalImport, setEnableExternalImport] = useState(userProfile?.enableExternalDataImport || false);
   const [isTogglingImport, setIsTogglingImport] = useState(false);
-  const [copiedScript, setCopiedScript] = useState(false);
-
-  const handleCopyAppsScript = () => {
-    navigator.clipboard.writeText(UNIVERSAL_APPS_SCRIPT_CODE);
-    setCopiedScript(true);
-    setTimeout(() => setCopiedScript(false), 2500);
-  };
 
   // Caregiver sharing state
   const [isAdding, setIsAdding] = useState(false);
@@ -1071,7 +1062,7 @@ export default function Settings({
           </label>
         </div>
 
-        {/* Nalama Companion Android App Banner (Always Visible for quick onboarding) */}
+        {/* Nalama Companion Android App Banner */}
         <div className="bg-gradient-to-br from-stone-900 via-stone-900 to-stone-950 text-white p-4 sm:p-5 rounded-2xl border border-stone-800 flex flex-col gap-3.5 relative overflow-hidden">
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
@@ -1082,7 +1073,7 @@ export default function Settings({
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-white">Nalama Companion App</h3>
                   <span className="bg-teal-500/20 text-teal-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-teal-500/30">
-                    {COMPANION_APP_INFO.version} APK
+                    V1.0.1 APK
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-300 font-medium">
@@ -1092,7 +1083,7 @@ export default function Settings({
             </div>
 
             <a
-              href={COMPANION_APP_INFO.releaseTagUrl}
+              href="https://github.com/karthickvijayc/nalama.companion/releases/tag/V1.0.1"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[11px] text-stone-400 hover:text-teal-300 font-medium flex items-center gap-1 hover:underline ml-auto"
@@ -1102,55 +1093,22 @@ export default function Settings({
             </a>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+          <div className="pt-1">
             <a
-              href={COMPANION_APP_INFO.apkDownloadUrl}
-              download={COMPANION_APP_INFO.apkFileName}
+              href="https://github.com/karthickvijayc/nalama.companion/releases/download/V1.0.1/Nalama-Companion-App.apk"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 bg-teal-600 hover:bg-teal-500 text-white font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-xs shadow-xs"
+              className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-xs shadow-xs"
             >
               <Download size={14} />
-              <span>Download APK ({COMPANION_APP_INFO.apkSize})</span>
+              <span>Download Latest APK (V1.0.1)</span>
             </a>
-
-            <button
-              type="button"
-              onClick={handleCopyAppsScript}
-              className="bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-xs border border-stone-700"
-            >
-              {copiedScript ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-              <span>{copiedScript ? 'Copied Sheets Script!' : 'Copy Webhook Script'}</span>
-            </button>
-
-            {onOpenDeveloperGuide && (
-              <button
-                type="button"
-                onClick={onOpenDeveloperGuide}
-                className="bg-stone-800/80 hover:bg-stone-800 text-teal-300 font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-1 transition-colors text-xs border border-stone-700/80"
-              >
-                <BookOpen size={14} />
-                <span>Guide &amp; Specs</span>
-              </button>
-            )}
           </div>
         </div>
 
         {/* Sync Controls & Info when enabled */}
         {enableExternalImport && (
           <div className="flex flex-col gap-3.5 pt-1 border-t border-stone-150 animate-in fade-in duration-200">
-            {/* Folder Targets Summary */}
-            <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200/80 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-stone-800 font-bold text-xs">
-                <Database size={15} className="text-teal-700" />
-                <span>Google Drive Import Locations</span>
-              </div>
-              <div className="flex flex-col gap-1 text-[11px] font-mono text-stone-600 pl-5">
-                <div>• /nalama.family/imports/<span className="text-emerald-700 font-bold">health_data/</span> (*.json, *.csv)</div>
-                <div>• /nalama.family/imports/<span className="text-sky-700 font-bold">gym_workouts/</span> (*.json, *.csv)</div>
-              </div>
-            </div>
-
             {/* Last Sync Status Banner */}
             {userProfile?.lastImportSyncTimestamp && (
               <div className="flex items-center justify-between text-xs text-stone-600 bg-teal-50/60 p-3 rounded-xl border border-teal-100">
@@ -1183,19 +1141,6 @@ export default function Settings({
                   </>
                 )}
               </button>
-
-              {/* Developer Technical Documentation Link */}
-              {onOpenDeveloperGuide && (
-                <button
-                  type="button"
-                  onClick={onOpenDeveloperGuide}
-                  className="bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-xs border border-stone-200"
-                >
-                  <BookOpen size={16} className="text-stone-600" />
-                  <span>Developer & Schema Guide</span>
-                  <ChevronRight size={14} className="text-stone-400" />
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -1204,15 +1149,6 @@ export default function Settings({
         {!enableExternalImport && (
           <div className="flex items-center justify-between text-xs text-stone-500 bg-stone-50 p-3 rounded-xl border border-stone-200/60">
             <span>Background import sync is paused. Turn on to check Google Drive on page load.</span>
-            {onOpenDeveloperGuide && (
-              <button
-                type="button"
-                onClick={onOpenDeveloperGuide}
-                className="text-teal-700 font-bold hover:underline shrink-0 ml-2"
-              >
-                View Technical Specs
-              </button>
-            )}
           </div>
         )}
       </section>

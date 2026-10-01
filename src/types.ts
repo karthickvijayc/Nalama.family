@@ -12,6 +12,12 @@ export interface HealthLogEntry {
   calories?: number;
   caloriesBurned?: number;
   activeMinutes?: number;
+  steps?: number;
+  heartRate?: number;
+  restingHeartRate?: number;
+  sleepMinutes?: number;
+  sleepHours?: number;
+  sleepEfficiency?: number;
   timeBucket?: TimeBucket;
   processed?: boolean;
 }

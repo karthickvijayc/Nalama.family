@@ -69,7 +69,7 @@ export default function App() {
     forceSync: boolean = false
   ) => {
     const prof = profileToUse || userProfile;
-    if (!prof?.enableExternalDataImport) {
+    if (prof?.enableExternalDataImport === false && !forceSync) {
       return;
     }
 
@@ -175,8 +175,8 @@ export default function App() {
       setNeedsAuth(false);
       setIsInitializing(false);
 
-      // On Page Load / Initialization: If external import is enabled, trigger background sync
-      if (activeUserProfile?.enableExternalDataImport && !initialSyncAttemptedRef.current) {
+      // On Page Load / Initialization: If external import is not explicitly disabled, trigger background sync
+      if (activeUserProfile?.enableExternalDataImport !== false && !initialSyncAttemptedRef.current) {
         initialSyncAttemptedRef.current = true;
         // Non-blocking background execution
         setTimeout(() => {
