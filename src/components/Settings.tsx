@@ -47,6 +47,8 @@ import { getCustomGeminiApiKey, setCustomGeminiApiKey, getAiFetchHeaders } from 
 import { User as FirebaseUser } from 'firebase/auth';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { COMPANION_APP_INFO } from '../lib/companionConstants';
+import DiagnosticsViewer from './DiagnosticsViewer';
+import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 
 interface SettingsProps {
   onLogout?: () => void;
@@ -271,6 +273,7 @@ export default function Settings({
     setIsTestingKey(true);
     setKeyTestResult(null);
 
+    const tStart = performance.now();
     try {
       const res = await fetch('/api/test-gemini-key', {
         method: 'POST',
@@ -279,21 +282,52 @@ export default function Settings({
       });
 
       const data = await res.json();
+      const durationMs = performance.now() - tStart;
+
       if (res.ok && data.success) {
         setKeyTestResult({
           success: true,
           message: `Connected successfully! (${data.model || 'Gemini 2.5 Flash'})`
+        });
+        recordTelemetry({
+          capability: 'auth',
+          operation: 'test_gemini_key',
+          status: 'success',
+          durationMs,
+          statusCode: res.status,
+          summary: `Gemini API key validated (${data.model || 'Gemini 2.5 Flash'})`,
+          meta: { model: data.model || 'gemini-2.5-flash' }
         });
       } else {
         setKeyTestResult({
           success: false,
           message: data.error || 'Key validation failed. Please check permissions in Google AI Studio.'
         });
+        recordTelemetry({
+          capability: 'auth',
+          operation: 'test_gemini_key',
+          status: 'error',
+          durationMs,
+          statusCode: res.status,
+          errorCode: 'INVALID_API_KEY',
+          summary: data.error || 'Gemini key validation failed'
+        });
       }
     } catch (err: any) {
+      const durationMs = performance.now() - tStart;
+      const sanitized = sanitizeError(err);
       setKeyTestResult({
         success: false,
         message: err.message || 'Network error while validating key.'
+      });
+      recordTelemetry({
+        capability: 'auth',
+        operation: 'test_gemini_key',
+        status: 'error',
+        durationMs,
+        statusCode: sanitized.statusCode || 500,
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary
       });
     } finally {
       setIsTestingKey(false);
@@ -1090,7 +1124,7 @@ export default function Settings({
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-white">Nalama Companion App</h3>
                   <span className="bg-teal-500/20 text-teal-300 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-teal-500/30">
-                    V1.0.1 APK
+                    APK
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-300 font-medium">
@@ -1100,7 +1134,7 @@ export default function Settings({
             </div>
 
             <a
-              href="https://github.com/karthickvijayc/nalama.companion/releases/tag/V1.0.1"
+              href={COMPANION_APP_INFO.releaseTagUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[11px] text-stone-400 hover:text-teal-300 font-medium flex items-center gap-1 hover:underline ml-auto"
@@ -1112,13 +1146,13 @@ export default function Settings({
 
           <div className="pt-1">
             <a
-              href="https://github.com/karthickvijayc/nalama.companion/releases/download/V1.0.1/Nalama-Companion-App.apk"
+              href={COMPANION_APP_INFO.latestDownloadUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-xs shadow-xs"
             >
               <Download size={14} />
-              <span>Download Latest APK (V1.0.1)</span>
+              <span>Download Latest APK</span>
             </a>
           </div>
         </div>
@@ -1526,7 +1560,12 @@ export default function Settings({
               </div>
             </div>
 
-            {/* 3. Account & Sign Out */}
+            {/* 3. System Diagnostics & Operational Telemetry */}
+            <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80" id="settings-diagnostics-section">
+              <DiagnosticsViewer />
+            </div>
+
+            {/* 4. Account & Sign Out */}
             <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80" id="settings-account-section">
               <div className="flex items-center gap-2 px-1">
                 <User size={18} className="text-stone-900" />

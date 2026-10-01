@@ -97,13 +97,20 @@ export function parseCSV(csvText: string): { headers: string[]; rows: Record<str
  * Standardize any date format into canonical "YYYY-MM-DD"
  */
 export function normalizeDateStr(rawDate: any): string {
-  if (!rawDate) return new Date().toISOString().split('T')[0];
+  const today = new Date();
+  const todayIso = today.toISOString().split('T')[0];
+  const maxFutureIso = new Date(today.getTime() + 86400000 * 1.5).toISOString().split('T')[0];
+
+  if (!rawDate) return todayIso;
 
   // Handle Excel numeric serial dates (e.g. 45558)
   if (typeof rawDate === 'number' || (!isNaN(Number(rawDate)) && Number(rawDate) > 30000 && Number(rawDate) < 70000)) {
     const serial = Number(rawDate);
     const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
-    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    if (!isNaN(d.getTime())) {
+      const res = d.toISOString().split('T')[0];
+      return res > maxFutureIso ? todayIso : res;
+    }
   }
 
   const str = String(rawDate).trim().replace(/[T ].*$/, '');
@@ -111,16 +118,59 @@ export function normalizeDateStr(rawDate: any): string {
   // 1. Match YYYY-MM-DD or YYYY/MM/DD
   const ymd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (ymd) {
-    return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+    const y = parseInt(ymd[1], 10);
+    const m = Math.max(1, Math.min(12, parseInt(ymd[2], 10)));
+    const d = Math.max(1, Math.min(31, parseInt(ymd[3], 10)));
+    const res = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return res > maxFutureIso ? todayIso : res;
   }
 
-  // 2. Match DD-MM-YYYY or DD/MM/YYYY
+  // 2. Match DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, or MM/DD/YYYY
   const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (dmy) {
     const p1 = parseInt(dmy[1], 10);
     const p2 = parseInt(dmy[2], 10);
-    const year = dmy[3];
-    return `${year}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+    const year = parseInt(dmy[3], 10);
+
+    let m: number;
+    let d: number;
+
+    if (p1 > 12 && p2 <= 12) {
+      // p1 is day, p2 is month (e.g. 24/09/2026)
+      m = p2;
+      d = p1;
+    } else if (p1 <= 12 && p2 > 12) {
+      // p1 is month, p2 is day (e.g. 09/24/2026)
+      m = p1;
+      d = p2;
+    } else {
+      // Ambiguous (both <= 12, e.g. 05/10/2026 or 10/01/2026)
+      // Check if one interpretation places the date in the future
+      const optP2Month = `${year}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+      const optP1Month = `${year}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+
+      if (optP2Month > maxFutureIso && optP1Month <= maxFutureIso) {
+        m = p1;
+        d = p2;
+      } else if (optP1Month > maxFutureIso && optP2Month <= maxFutureIso) {
+        m = p2;
+        d = p1;
+      } else {
+        // Standard convention: '/' is commonly MM/DD/YYYY in US/Hevy; '-' is commonly DD-MM-YYYY
+        if (str.includes('/')) {
+          m = p1;
+          d = p2;
+        } else {
+          m = p2;
+          d = p1;
+        }
+      }
+    }
+
+    m = Math.max(1, Math.min(12, m));
+    d = Math.max(1, Math.min(31, d));
+    const res = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return res > maxFutureIso ? todayIso : res;
   }
 
   // Fallback to Date parser
@@ -129,10 +179,11 @@ export function normalizeDateStr(rawDate: any): string {
     const y = parsed.getFullYear();
     const m = String(parsed.getMonth() + 1).padStart(2, '0');
     const day = String(parsed.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    const res = `${y}-${m}-${day}`;
+    return res > maxFutureIso ? todayIso : res;
   }
 
-  return new Date().toISOString().split('T')[0];
+  return todayIso;
 }
 
 /**
@@ -188,8 +239,10 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
   const sessionDateStr = normalizeDateStr(session.date);
   const dateParts = sessionDateStr.split('-');
   const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
-  const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
-  const day = parseInt(dateParts[2], 10) || new Date().getDate();
+  const rawMonth = parseInt(dateParts[1], 10) || (new Date().getMonth() + 1);
+  const month = Math.max(0, Math.min(11, rawMonth - 1));
+  const rawDay = parseInt(dateParts[2], 10) || new Date().getDate();
+  const day = Math.max(1, Math.min(31, rawDay));
 
   let startHour = 8;
   let startMin = 0;
@@ -209,11 +262,21 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
     }
   }
 
-  const d = new Date(year, month, day, startHour, startMin);
-  const isValidDate = !isNaN(d.getTime());
-  const isoTimestamp = isValidDate ? d.toISOString() : new Date().toISOString();
-  const displayDate = isValidDate ? formatDisplayDate(d) : formatDisplayDate(new Date());
-  const displayTime = isValidDate ? formatDisplayTime(d) : formatDisplayTime(new Date());
+  let d = new Date(year, month, day, startHour, startMin);
+  if (isNaN(d.getTime())) {
+    d = new Date();
+  }
+
+  // Safety guard against future workout timestamps (allowing max 24h for timezones)
+  const maxFutureAllowed = Date.now() + 86400000;
+  if (d.getTime() > maxFutureAllowed) {
+    console.warn(`[WorkoutParser] Detected future timestamp (${d.toISOString()}) for workout "${session.title || 'Gym Session'}". Clamping to current timestamp.`);
+    d = new Date();
+  }
+
+  const isoTimestamp = d.toISOString();
+  const displayDate = formatDisplayDate(d);
+  const displayTime = formatDisplayTime(d);
 
   // Determine time bucket
   let timeBucket: TimeBucket = 'Morning';

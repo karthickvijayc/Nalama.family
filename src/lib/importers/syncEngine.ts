@@ -22,6 +22,7 @@ import {
   saveUserProfileToDrive 
 } from '../drive';
 import { parseImportFileContent, parseExcelBuffer, ParseResult } from './parser';
+import { recordTelemetry, sanitizeError } from '../telemetry';
 
 export type SyncStatusCallback = (event: {
   status: 'checking' | 'processing' | 'success' | 'error' | 'idle';
@@ -49,6 +50,7 @@ export async function executeExternalDataSync(
 ): Promise<SyncExecutionResult> {
   const { token, mainFolderId } = driveState;
   const errors: string[] = [];
+  const syncStartTime = performance.now();
 
   try {
     onProgress?.({
@@ -182,15 +184,21 @@ export async function executeExternalDataSync(
     const logsByMonth = new Map<string, HealthLogEntry[]>();
     for (const log of allNewLogs) {
       let monthKey = '';
-      const idMatch = log.id.match(/(\d{4})-(\d{2})/);
-      if (idMatch) {
-        monthKey = `${idMatch[1]}-${idMatch[2]}`;
-      } else {
-        const logDate = new Date(log.timestamp);
-        const year = !isNaN(logDate.getTime()) ? logDate.getFullYear() : new Date().getFullYear();
-        const monthNum = !isNaN(logDate.getTime()) ? String(logDate.getMonth() + 1).padStart(2, '0') : String(new Date().getMonth() + 1).padStart(2, '0');
-        monthKey = `${year}-${monthNum}`;
+      const logDate = new Date(log.timestamp);
+      const validDate = !isNaN(logDate.getTime()) ? logDate : new Date();
+
+      // Guard: Ensure partition year is realistic (prevent UUID regex or corrupted dates creating e.g. year 4574)
+      let year = validDate.getFullYear();
+      let month = validDate.getMonth() + 1;
+      const currentYear = new Date().getFullYear();
+
+      if (year > currentYear + 1 || year < 2015) {
+        year = currentYear;
+        month = new Date().getMonth() + 1;
       }
+
+      const monthNum = String(month).padStart(2, '0');
+      monthKey = `${year}-${monthNum}`;
 
       if (!logsByMonth.has(monthKey)) {
         logsByMonth.set(monthKey, []);
@@ -307,6 +315,19 @@ export async function executeExternalDataSync(
       details: { totalSavedLogs, totalUpdatedLogs, filesProcessed: filesToProcess.length }
     });
 
+    recordTelemetry({
+      capability: 'sync',
+      operation: 'drive_import_sync',
+      status: 'success',
+      durationMs: performance.now() - syncStartTime,
+      summary: finalSummary,
+      meta: {
+        totalSavedLogs,
+        totalUpdatedLogs,
+        filesProcessed: filesToProcess.length
+      }
+    });
+
     return {
       success: true,
       totalNewLogsAdded: totalSavedLogs,
@@ -319,6 +340,20 @@ export async function executeExternalDataSync(
   } catch (syncErr: any) {
     console.error('External data sync execution failed:', syncErr);
     const errorMsg = syncErr.message || 'Failed to sync external health and workout data';
+    const sanitized = sanitizeError(syncErr);
+
+    recordTelemetry({
+      capability: 'sync',
+      operation: 'drive_import_sync',
+      status: 'error',
+      durationMs: performance.now() - syncStartTime,
+      statusCode: sanitized.statusCode || 500,
+      errorCode: sanitized.errorCode,
+      summary: sanitized.summary,
+      meta: {
+        rawError: errorMsg.slice(0, 100)
+      }
+    });
     
     onProgress?.({
       status: 'error',

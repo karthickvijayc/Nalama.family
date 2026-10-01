@@ -28,6 +28,7 @@ import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
+import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 
 interface VoiceRecorderButtonProps {
   driveState: DriveState | null;
@@ -271,6 +272,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
 
       // Call server-side transcribe and classification API
       const localTimeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const tStart = performance.now();
       const response = await fetch('/api/transcribe', {
         method: 'POST',
         headers: { 
@@ -285,14 +287,39 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         })
       });
 
+      const durationMs = performance.now() - tStart;
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Transcription failed (${response.status})`);
+        const errText = errData.error || `Transcription failed (${response.status})`;
+        const sanitized = sanitizeError({ message: errText, status: response.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'transcribe_audio',
+          status: 'error',
+          durationMs,
+          statusCode: response.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary
+        });
+        throw new Error(errText);
       }
 
       const data = await response.json();
       const detectedText = (data.transcription || '').trim();
       setTranscript(detectedText);
+
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'transcribe_audio',
+        status: 'success',
+        durationMs,
+        statusCode: response.status,
+        summary: `Audio transcribed successfully (${data.entries?.length || 1} entries parsed)`,
+        meta: {
+          entriesCount: data.entries?.length || 1,
+          hasTranscription: Boolean(detectedText)
+        }
+      });
 
       // Handle multi-entry classification from LLM
       if (Array.isArray(data.entries) && data.entries.length > 0) {
@@ -328,6 +355,15 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       setModalState('review');
     } catch (err: any) {
       console.error('Transcription error:', err);
+      const sanitized = sanitizeError(err);
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'transcribe_audio',
+        status: 'error',
+        statusCode: sanitized.statusCode || 500,
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary
+      });
       setErrorMessage(`Transcription notice: ${err.message}. You can edit or add your notes below.`);
       setReviewEntries([{
         id: `entry-${Date.now()}-0`,
@@ -373,6 +409,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
 
     setIsClassifying(true);
     setErrorMessage(null);
+    const tStart = performance.now();
     try {
       const localTimeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const response = await fetch('/api/classify-text', {
@@ -384,11 +421,33 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         body: JSON.stringify({ text: combinedText, clientTime: localTimeStr, primaryLanguage: variant.language })
       });
 
+      const durationMs = performance.now() - tStart;
       if (!response.ok) {
+        const errText = `Classification failed (${response.status})`;
+        const sanitized = sanitizeError({ message: errText, status: response.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'classify_text',
+          status: 'error',
+          durationMs,
+          statusCode: response.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary
+        });
         throw new Error('Classification service failed');
       }
 
       const data = await response.json();
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'classify_text',
+        status: 'success',
+        durationMs,
+        statusCode: response.status,
+        summary: `Text classified (${data.entries?.length || 1} segments created)`,
+        meta: { entriesCount: data.entries?.length || 1 }
+      });
+
       if (Array.isArray(data.entries) && data.entries.length > 0) {
         setReviewEntries(data.entries.map((item: any, idx: number) => ({
           id: `entry-${Date.now()}-${idx}`,
@@ -403,6 +462,15 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       }
     } catch (err: any) {
       console.error('Reclassify error:', err);
+      const sanitized = sanitizeError(err);
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'classify_text',
+        status: 'error',
+        statusCode: sanitized.statusCode || 500,
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary
+      });
       setErrorMessage('Could not reclassify automatically. You can choose categories manually.');
     } finally {
       setIsClassifying(false);
@@ -462,6 +530,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       const userProfile = contextData?.user_profile || null;
 
       // 2. Call API with all new entries & userProfile context
+      const tContextStart = performance.now();
       const res = await fetch('/api/extract-context', {
         method: 'POST',
         headers: { 
@@ -471,12 +540,32 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         body: JSON.stringify({ facts: currentFacts, newLogs: entries, userProfile })
       });
       
+      const contextDurationMs = performance.now() - tContextStart;
       if (!res.ok) {
         const errText = await res.text();
+        const sanitized = sanitizeError({ message: errText, status: res.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'extract_context',
+          status: 'error',
+          durationMs: contextDurationMs,
+          statusCode: res.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary
+        });
         throw new Error(errText);
       }
       
       const { facts: updatedFacts } = await res.json();
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'extract_context',
+        status: 'success',
+        durationMs: contextDurationMs,
+        statusCode: res.status,
+        summary: `Context memory updated (${updatedFacts?.length || 0} facts stored)`,
+        meta: { factsCount: updatedFacts?.length || 0 }
+      });
 
       // 3. Write back
       const newContextData = { ...(contextData || { schema_version: "1.0", family_members: [] }), facts: updatedFacts };
@@ -486,6 +575,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       setModalState('generating_digest');
       try {
         const preferredName = userProfile?.nickname || userProfile?.displayName || 'Family Member';
+        const tDigestStart = performance.now();
         const digestRes = await fetch('/api/generate-digest', {
           method: 'POST',
           headers: { 
@@ -500,15 +590,42 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
           })
         });
 
+        const digestDurationMs = performance.now() - tDigestStart;
         if (digestRes.ok) {
           const { digest } = await digestRes.json();
           if (digest) {
             const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId);
             await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+            recordTelemetry({
+              capability: 'ai',
+              operation: 'generate_digest',
+              status: 'success',
+              durationMs: digestDurationMs,
+              statusCode: digestRes.status,
+              summary: 'Caregiver family digest generated successfully'
+            });
           }
+        } else {
+          recordTelemetry({
+            capability: 'ai',
+            operation: 'generate_digest',
+            status: 'warning',
+            durationMs: digestDurationMs,
+            statusCode: digestRes.status,
+            errorCode: 'DIGEST_FAILED',
+            summary: `Digest generation failed (${digestRes.status})`
+          });
         }
       } catch (digestErr) {
         console.warn('Caregiver digest generation warning (non-fatal):', digestErr);
+        const sanitized = sanitizeError(digestErr);
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'generate_digest',
+          status: 'warning',
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary
+        });
       }
 
       setModalState('success');
@@ -525,6 +642,14 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
 
     } catch (err: any) {
       console.error('Extract context error:', err);
+      const sanitized = sanitizeError(err);
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'extract_context',
+        status: 'error',
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary
+      });
       setErrorMessage("Logs saved, but health profile fact extraction encountered an issue. You can retry below.");
       setModalState('extraction_error');
       latestEntriesRef.current = entries;

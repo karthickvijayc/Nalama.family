@@ -29,8 +29,9 @@ import {
 } from './lib/drive';
 import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { User } from 'firebase/auth';
-import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
+import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
+import DriveAuditTab from './components/DriveAuditTab';
 
 export type { DriveState };
 
@@ -383,7 +384,13 @@ export default function App() {
         {activeTab === 'developer_guide' && (
           <DeveloperGuide onBack={() => setActiveTab('settings')} />
         )}
-        {activeTab !== 'home' && activeTab !== 'coaching' && activeTab !== 'profile' && activeTab !== 'family' && activeTab !== 'settings' && activeTab !== 'developer_guide' && (
+        {activeTab === 'audit' && (
+          <DriveAuditTab 
+            driveState={driveState} 
+            onRefreshLogs={() => setLogsRefreshTrigger(prev => prev + 1)} 
+          />
+        )}
+        {activeTab !== 'home' && activeTab !== 'coaching' && activeTab !== 'profile' && activeTab !== 'family' && activeTab !== 'settings' && activeTab !== 'developer_guide' && activeTab !== 'audit' && (
           <div className="flex h-full items-center justify-center text-stone-500 font-medium">
             Coming soon...
           </div>
@@ -399,28 +406,34 @@ export default function App() {
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-40">
-        <div className="max-w-md mx-auto flex justify-between items-center px-8 py-3 pb-safe">
+        <div className="max-w-md mx-auto flex justify-between items-center px-4 sm:px-6 py-2.5 pb-safe">
           <NavItem 
-            icon={<Home size={28} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
+            icon={<Home size={26} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
             label="Home" 
             active={activeTab === 'home'} 
             onClick={() => setActiveTab('home')}
           />
           <NavItem 
-            icon={<MessageCircle size={28} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
+            icon={<MessageCircle size={26} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
             label="Coaching" 
             active={activeTab === 'coaching'}
             onClick={() => setActiveTab('coaching')}
           />
           <NavItem 
-            icon={<Users size={28} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
+            icon={<ScanSearch size={26} strokeWidth={activeTab === 'audit' ? 2.5 : 2} />} 
+            label="Audit" 
+            active={activeTab === 'audit'}
+            onClick={() => setActiveTab('audit')}
+          />
+          <NavItem 
+            icon={<Users size={26} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
             label="Family" 
             active={activeTab === 'family'}
             variant="canopy"
             onClick={() => setActiveTab('family')}
           />
           <NavItem 
-            icon={<Settings size={28} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
+            icon={<Settings size={26} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
             label="Settings" 
             active={activeTab === 'settings'}
             onClick={() => setActiveTab('settings')}

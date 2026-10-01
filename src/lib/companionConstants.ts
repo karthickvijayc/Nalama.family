@@ -5,14 +5,14 @@
  */
 
 export const COMPANION_APP_INFO = {
-  version: 'V1.0.1',
+  version: 'Latest',
   title: 'Nalama Companion (Android)',
   packageName: 'com.aistudio.nalamahealthsync.kcvyzc',
-  apkFileName: 'Nalama-Companion-App.apk',
-  apkSize: '23.8 MB',
-  releaseTagUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/tag/V1.0.1',
-  apkDownloadUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/download/V1.0.1/Nalama-Companion-App.apk',
-  latestDownloadUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/download/V1.0.1/Nalama-Companion-App.apk',
+  apkFileName: 'NalamaCompanionHealthData.APK',
+  apkSize: '24 MB',
+  releaseTagUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/latest',
+  apkDownloadUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/latest/download/NalamaCompanionHealthData.APK',
+  latestDownloadUrl: 'https://github.com/karthickvijayc/nalama.companion/releases/latest/download/NalamaCompanionHealthData.APK',
   repoUrl: 'https://github.com/karthickvijayc/nalama.companion',
   supportedSources: ['Android Health Connect', 'Hevy Gym Workouts (API)', 'Samsung Health', 'Fitbit / Pixel Watch', 'Garmin / Oura via Health Connect'],
   features: [

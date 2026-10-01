@@ -31,6 +31,7 @@ import remarkGfm from 'remark-gfm';
 import { getInsightsFromDrive, saveInsightsToDrive, readJsonFile, getOrCreateMonthlyLogFile, getUserProfileFromDrive, writeJsonFile, getOrCreateCareDigestFile, appendCaregiverDigest, findFileOrFolder } from '../lib/drive';
 import { CoachingRoomId, CoachingMessage, UserProfile, HealthFact, HealthLogEntry } from '../types';
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
+import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 
 function formatMarkdownForDisplay(content: string): string {
   if (!content) return '';
@@ -388,6 +389,7 @@ export default function Coaching({
         }
       }
       
+      const tStart = performance.now();
       const res = await fetch('/api/generate-insights', {
         method: 'POST',
         headers: { 
@@ -397,11 +399,32 @@ export default function Coaching({
         body: JSON.stringify({ logs: recentLogs, facts, userProfile: profile })
       });
       
+      const durationMs = performance.now() - tStart;
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to generate insights');
+        const errText = errData.error || 'Failed to generate insights';
+        const sanitized = sanitizeError({ message: errText, status: res.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'generate_insights',
+          status: 'error',
+          durationMs,
+          statusCode: res.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary
+        });
+        throw new Error(errText);
       }
       const newInsights = await res.json();
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'generate_insights',
+        status: 'success',
+        durationMs,
+        statusCode: res.status,
+        summary: 'Weekly wellness insights generated successfully',
+        meta: { logsAnalyzedCount: recentLogs.length }
+      });
       
       await saveInsightsToDrive(driveState.token, driveState.mainFolderId, {
         lastGeneratedDate: new Date().toISOString(),
@@ -527,6 +550,7 @@ export default function Coaching({
 
       const activeBridge = bridgeContexts[activeRoomId] || '';
 
+      const tChatStart = performance.now();
       const response = await fetch('/api/coaching-chat', {
         method: 'POST',
         headers: { 
@@ -544,12 +568,35 @@ export default function Coaching({
         })
       });
 
+      const chatDurationMs = performance.now() - tChatStart;
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to get coaching response');
+        const errText = errData.error || 'Failed to get coaching response';
+        const sanitized = sanitizeError({ message: errText, status: response.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'coaching_chat',
+          status: 'error',
+          durationMs: chatDurationMs,
+          statusCode: response.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary,
+          meta: { roomId: activeRoomId }
+        });
+        throw new Error(errText);
       }
 
       const data = await response.json();
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'coaching_chat',
+        status: 'success',
+        durationMs: chatDurationMs,
+        statusCode: response.status,
+        summary: 'Coaching guidance received',
+        meta: { roomId: activeRoomId }
+      });
+
       const newBotMsg: CoachingMessage = {
         id: 'msg-bot-' + Date.now(),
         role: 'assistant',
@@ -578,6 +625,16 @@ export default function Coaching({
 
     } catch (err: any) {
       console.error('Coaching chat error:', err);
+      const sanitized = sanitizeError(err);
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'coaching_chat',
+        status: 'error',
+        statusCode: sanitized.statusCode || 500,
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary,
+        meta: { roomId: activeRoomId }
+      });
       setChatError(err.message || 'Could not send message');
     } finally {
       setIsSendingMessage(false);

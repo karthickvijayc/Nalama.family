@@ -23,6 +23,7 @@ import {
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
+import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 
 interface HealthDocUploaderProps {
   driveState: DriveState | null;
@@ -210,6 +211,7 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         base64: f.base64
       }));
 
+      const tStart = performance.now();
       const response = await fetch('/api/analyze-files', {
         method: 'POST',
         headers: {
@@ -223,12 +225,37 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         })
       });
 
+      const durationMs = performance.now() - tStart;
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Analysis failed (${response.status})`);
+        const errText = errData.error || `Analysis failed (${response.status})`;
+        const sanitized = sanitizeError({ message: errText, status: response.status });
+        recordTelemetry({
+          capability: 'ai',
+          operation: 'analyze_documents',
+          status: 'error',
+          durationMs,
+          statusCode: response.status,
+          errorCode: sanitized.errorCode,
+          summary: sanitized.summary,
+          meta: { filesCount: filesPayload.length }
+        });
+        throw new Error(errText);
       }
 
       const data = await response.json();
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'analyze_documents',
+        status: 'success',
+        durationMs,
+        statusCode: response.status,
+        summary: `Documents analyzed (${data.entries?.length || 1} entries extracted)`,
+        meta: {
+          filesCount: filesPayload.length,
+          entriesCount: data.entries?.length || 1
+        }
+      });
       
       if (Array.isArray(data.entries) && data.entries.length > 0) {
         const items: ReviewEntryItem[] = data.entries.map((item: any, idx: number) => ({
@@ -257,6 +284,15 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       setUploaderState('review');
     } catch (err: any) {
       console.error('File analysis error:', err);
+      const sanitized = sanitizeError(err);
+      recordTelemetry({
+        capability: 'ai',
+        operation: 'analyze_documents',
+        status: 'error',
+        statusCode: sanitized.statusCode || 500,
+        errorCode: sanitized.errorCode,
+        summary: sanitized.summary
+      });
       setErrorMessage(`Analysis notice: ${err.message}. You can manually input notes below.`);
       setReviewEntries([{
         id: `entry-${Date.now()}-0`,
