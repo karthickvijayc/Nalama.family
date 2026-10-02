@@ -304,6 +304,12 @@ export default function App() {
     );
   }
 
+  const isIntakeNeeded = Boolean(
+    userProfile && 
+    (userProfile.isIntakeComplete === false || (userProfile.isIntakeComplete === undefined && !userProfile.age && !userProfile.nickname && !userProfile.healthGoals && !userProfile.lifestyle)) && 
+    driveState
+  );
+
   return (
     <div className="min-h-screen flex flex-col font-sans selection:bg-tree-100 relative">
       <PWAInstallBanner />
@@ -406,17 +412,17 @@ export default function App() {
           </div>
         )}
         
-        {/* Floating Voice Button (Only visible on Home and Coaching tabs; removed from Family & Settings) */}
+        {/* Floating Voice Button (Only visible on Home and Coaching tabs; hidden during intake) */}
         <VoiceRecorderButton 
           driveState={driveState}
-          visible={activeTab === 'home' || activeTab === 'coaching'}
+          visible={!isIntakeNeeded && (activeTab === 'home' || activeTab === 'coaching')}
           onLogSaved={() => setLogsRefreshTrigger(prev => prev + 1)}
         />
 
         {/* New User Profile Setup / Onboarding Modal */}
-        {userProfile && (userProfile.isIntakeComplete === false || (userProfile.isIntakeComplete === undefined && !userProfile.age && !userProfile.nickname && !userProfile.healthGoals && !userProfile.lifestyle)) && driveState && (
+        {isIntakeNeeded && (
           <IntakeWizard
-            initialProfile={userProfile}
+            initialProfile={userProfile!}
             onSave={async (updatedProfile) => {
               setUserProfile(updatedProfile);
               if (driveState?.contextFileId && driveState?.token) {
@@ -427,42 +433,44 @@ export default function App() {
         )}
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-40">
-        <div className="max-w-md mx-auto flex justify-between items-center px-4 sm:px-6 py-2.5 pb-safe">
-          <NavItem 
-            icon={<Home size={26} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
-            label="Home" 
-            active={activeTab === 'home'} 
-            onClick={() => setActiveTab('home')}
-          />
-          <NavItem 
-            icon={<MessageCircle size={26} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
-            label="Coaching" 
-            active={activeTab === 'coaching'}
-            onClick={() => setActiveTab('coaching')}
-          />
-          <NavItem 
-            icon={<ScanSearch size={26} strokeWidth={activeTab === 'audit' ? 2.5 : 2} />} 
-            label="Audit" 
-            active={activeTab === 'audit'}
-            onClick={() => setActiveTab('audit')}
-          />
-          <NavItem 
-            icon={<Users size={26} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
-            label="Family" 
-            active={activeTab === 'family'}
-            variant="canopy"
-            onClick={() => setActiveTab('family')}
-          />
-          <NavItem 
-            icon={<Settings size={26} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
-            label="Settings" 
-            active={activeTab === 'settings'}
-            onClick={() => setActiveTab('settings')}
-          />
-        </div>
-      </nav>
+      {/* Bottom Navigation (hidden during intake onboarding) */}
+      {!isIntakeNeeded && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-40">
+          <div className="max-w-md mx-auto flex justify-between items-center px-4 sm:px-6 py-2.5 pb-safe">
+            <NavItem 
+              icon={<Home size={26} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
+              label="Home" 
+              active={activeTab === 'home'} 
+              onClick={() => setActiveTab('home')}
+            />
+            <NavItem 
+              icon={<MessageCircle size={26} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
+              label="Coaching" 
+              active={activeTab === 'coaching'}
+              onClick={() => setActiveTab('coaching')}
+            />
+            <NavItem 
+              icon={<ScanSearch size={26} strokeWidth={activeTab === 'audit' ? 2.5 : 2} />} 
+              label="Audit" 
+              active={activeTab === 'audit'}
+              onClick={() => setActiveTab('audit')}
+            />
+            <NavItem 
+              icon={<Users size={26} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
+              label="Family" 
+              active={activeTab === 'family'}
+              variant="canopy"
+              onClick={() => setActiveTab('family')}
+            />
+            <NavItem 
+              icon={<Settings size={26} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
+              label="Settings" 
+              active={activeTab === 'settings'}
+              onClick={() => setActiveTab('settings')}
+            />
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

@@ -11,7 +11,8 @@ import {
   CheckCircle2, 
   Dumbbell, 
   Apple, 
-  AlertCircle 
+  AlertCircle,
+  Utensils 
 } from 'lucide-react';
 import { UserProfile, UserTargets } from '../types';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
@@ -105,11 +106,11 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
   const progressPercent = (step / stepsCount) * 100;
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#F9F7F4] flex flex-col p-6 overflow-y-auto selection:bg-tree-100">
-      <div className="max-w-md w-full mx-auto flex-1 flex flex-col justify-between py-4">
+    <div className="fixed inset-0 z-50 bg-[#F9F7F4] flex flex-col overflow-hidden selection:bg-tree-100">
+      <div className="max-w-md w-full mx-auto flex-1 flex flex-col h-full min-h-0">
         
-        {/* Step indicator header */}
-        <div className="w-full flex flex-col gap-3">
+        {/* Step indicator header (pinned at top) */}
+        <div className="shrink-0 px-6 pt-5 pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1">
               <span className="text-tree-700 font-extrabold text-sm tracking-wide">Step {step}</span>
@@ -122,7 +123,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
           </div>
           
           {/* Custom progress bar */}
-          <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden mt-3">
             <motion.div 
               className="h-full bg-gradient-to-r from-tree-600 to-sky-500 rounded-full"
               initial={{ width: 0 }}
@@ -132,8 +133,8 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
           </div>
         </div>
 
-        {/* Dynamic Wizard Steps container with AnimatePresence */}
-        <div className="flex-1 my-6 flex flex-col justify-center min-h-[360px] relative">
+        {/* Dynamic Wizard Steps container with AnimatePresence (scrollable body) */}
+        <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0 overscroll-contain">
           {error && (
             <div className="mb-4 bg-rose-50 border border-rose-100 text-rose-800 text-xs font-bold p-3.5 rounded-2xl flex items-center gap-2.5 animate-in fade-in">
               <AlertCircle size={16} className="text-rose-500 shrink-0" />
@@ -149,7 +150,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col gap-5"
+                className="flex flex-col gap-5 py-1"
               >
                 <div>
                   <h2 className="text-2xl font-black text-stone-900 leading-tight">
@@ -264,7 +265,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col gap-5"
+                className="flex flex-col gap-5 py-1"
               >
                 <div>
                   <h2 className="text-2xl font-black text-stone-900 leading-tight">
@@ -325,7 +326,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col gap-5"
+                className="flex flex-col gap-5 py-1"
               >
                 <div>
                   <h2 className="text-2xl font-black text-stone-900 leading-tight">
@@ -336,7 +337,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-4 overflow-y-auto max-h-[300px] pr-1">
+                <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[11px] font-bold text-stone-600 uppercase tracking-wide">Lifestyle & Activity Level</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -363,24 +364,60 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-1.5 mt-2">
-                    <label className="text-[11px] font-bold text-stone-600 uppercase tracking-wide">Dietary Preference</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {['Balanced', 'Vegetarian', 'Vegan', 'Keto'].map((diet) => (
-                        <button
-                          key={diet}
-                          type="button"
-                          onClick={() => setProfile({ ...profile, dietaryPreference: diet })}
-                          className={`py-2.5 px-2 rounded-xl font-bold text-xs border text-center transition-all cursor-pointer ${
-                            profile.dietaryPreference === diet
-                              ? 'border-tree-600 bg-tree-50/50 text-tree-900'
-                              : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
-                          }`}
-                        >
-                          {diet}
-                        </button>
-                      ))}
+                  {/* Dietary Preference: 4 Presets + Custom Text Input */}
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-stone-600 uppercase tracking-wide flex items-center gap-1.5">
+                        <Utensils size={13} className="text-stone-400" />
+                        <span>Dietary Preference</span>
+                      </label>
+                      {profile.dietaryPreference && (
+                        <span className="text-[10px] text-tree-700 font-bold bg-tree-50 px-2.5 py-0.5 rounded-full border border-tree-200">
+                          {profile.dietaryPreference}
+                        </span>
+                      )}
                     </div>
+
+                    {/* 4 Quick Preset Chips */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {['Balanced', 'Vegetarian', 'Vegan', 'Keto'].map((diet) => {
+                        const isSelected = profile.dietaryPreference?.trim().toLowerCase() === diet.toLowerCase();
+                        return (
+                          <button
+                            key={diet}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setProfile({ ...profile, dietaryPreference: '' });
+                              } else {
+                                setProfile({ ...profile, dietaryPreference: diet });
+                              }
+                            }}
+                            className={`py-2.5 px-2 rounded-xl font-bold text-xs border text-center transition-all cursor-pointer ${
+                              isSelected
+                                ? 'border-tree-600 bg-tree-50 text-tree-900 shadow-2xs ring-1 ring-tree-500'
+                                : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+                            }`}
+                          >
+                            {diet}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Text Input */}
+                    <div className="relative mt-1">
+                      <input 
+                        type="text"
+                        value={profile.dietaryPreference || ''}
+                        onChange={(e) => setProfile({ ...profile, dietaryPreference: e.target.value })}
+                        placeholder="e.g. Vegetarian, Diabetic-friendly, Low sodium"
+                        className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-white text-stone-900 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-tree-500 transition-all placeholder:text-stone-300"
+                      />
+                    </div>
+                    <p className="text-[10px] text-stone-400 leading-normal">
+                      Select one of the presets above or type custom dietary requirements, allergies, or restrictions.
+                    </p>
                   </div>
                 </div>
               </motion.div>
@@ -393,7 +430,7 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col gap-5"
+                className="flex flex-col gap-5 py-1"
               >
                 <div>
                   <h2 className="text-2xl font-black text-stone-900 leading-tight">
@@ -432,47 +469,49 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
           </AnimatePresence>
         </div>
 
-        {/* Wizard Controls */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-stone-100">
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={step === 1 || isSaving}
-            className="flex items-center gap-1 py-3 px-5 text-stone-500 font-bold text-xs rounded-xl hover:bg-stone-100 disabled:opacity-0 transition cursor-pointer"
-          >
-            <ChevronLeft size={16} />
-            <span>Back</span>
-          </button>
+        {/* Wizard Controls (pinned at bottom) */}
+        <div className="shrink-0 px-6 py-4 border-t border-stone-200/80 bg-[#F9F7F4]/95 backdrop-blur-xs pb-safe">
+          <div className="flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={step === 1 || isSaving}
+              className="flex items-center gap-1 py-3 px-5 text-stone-500 font-bold text-xs rounded-xl hover:bg-stone-100 disabled:opacity-0 transition cursor-pointer"
+            >
+              <ChevronLeft size={16} />
+              <span>Back</span>
+            </button>
 
-          {step < stepsCount ? (
-            <button
-              type="button"
-              onClick={handleNext}
-              className="flex items-center gap-1.5 py-3.5 px-6 bg-tree-700 hover:bg-tree-800 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
-            >
-              <span>Continue</span>
-              <ChevronRight size={16} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSaving}
-              className="flex items-center gap-2 py-3.5 px-6 bg-gradient-to-r from-tree-700 to-sky-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer"
-            >
-              {isSaving ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Saving Space...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={16} />
-                  <span>Complete Setup</span>
-                </>
-              )}
-            </button>
-          )}
+            {step < stepsCount ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="flex items-center gap-1.5 py-3.5 px-6 bg-tree-700 hover:bg-tree-800 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
+              >
+                <span>Continue</span>
+                <ChevronRight size={16} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSaving}
+                className="flex items-center gap-2 py-3.5 px-6 bg-gradient-to-r from-tree-700 to-sky-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isSaving ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Saving Space...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    <span>Complete Setup</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
       </div>
