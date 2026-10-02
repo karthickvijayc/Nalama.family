@@ -73,4 +73,31 @@ const parsedReport = JSON.parse(reportJson);
 assert(parsedReport.events.length >= 1, `Report contains events: ${parsedReport.events.length}`);
 assert(parsedReport.events[0].capability === 'ai', `Event capability is ai`);
 
+console.log('\n=== TEST 4: January 0-Indexed Month Bug Regression Test ===');
+import { convertDailyHealthRecordToLogEntries } from '../src/lib/importers/parser';
+
+const janRecord = {
+  date: '2026-01-31',
+  sources: ['HealthConnect'],
+  activity: {
+    steps: 14214,
+    totalCaloriesKcal: 1159.1,
+    activeDurationMinutes: 129
+  },
+  vitals: {
+    restingHeartRateBpm: { avg: 114, min: 104, max: 122 }
+  }
+};
+
+const janLogs = convertDailyHealthRecordToLogEntries(janRecord as any);
+assert(janLogs.length >= 2, `Generated at least 2 logs for January 31, got: ${janLogs.length}`);
+
+for (const log of janLogs) {
+  const d = new Date(log.timestamp);
+  assert(d.getFullYear() === 2026, `Log year is 2026, got: ${d.getFullYear()}`);
+  assert(d.getMonth() === 0, `Log month is January (0), NOT October (9), got: ${d.getMonth()}`);
+  assert(d.getDate() === 31, `Log day is 31, got: ${d.getDate()}`);
+  assert(!log.timestamp.startsWith('2026-10-'), `Timestamp does NOT start with 2026-10, got: ${log.timestamp}`);
+}
+
 console.log('\n🎉 ALL TESTS PASSED SUCCESSFULLY!');

@@ -293,11 +293,12 @@ function formatDisplayDate(date: Date): string {
 export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession): HealthLogEntry {
   const sessionDateStr = normalizeDateStr(session.date);
   const dateParts = sessionDateStr.split('-');
-  const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
-  const rawMonth = parseInt(dateParts[1], 10) || (new Date().getMonth() + 1);
-  const month = Math.max(0, Math.min(11, rawMonth - 1));
-  const rawDay = parseInt(dateParts[2], 10) || new Date().getDate();
-  const day = Math.max(1, Math.min(31, rawDay));
+  const rawYear = parseInt(dateParts[0], 10);
+  const year = !isNaN(rawYear) && rawYear > 2000 ? rawYear : new Date().getFullYear();
+  const rawMonth = parseInt(dateParts[1], 10);
+  const month = !isNaN(rawMonth) && rawMonth >= 1 && rawMonth <= 12 ? rawMonth - 1 : new Date().getMonth();
+  const rawDay = parseInt(dateParts[2], 10);
+  const day = !isNaN(rawDay) && rawDay >= 1 && rawDay <= 31 ? rawDay : new Date().getDate();
 
   let startHour = 8;
   let startMin = 0;
@@ -396,9 +397,12 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
   const entries: HealthLogEntry[] = [];
   const dateStr = normalizeDateStr(record.date);
   const dateParts = dateStr.split('-');
-  const year = parseInt(dateParts[0], 10) || new Date().getFullYear();
-  const month = parseInt(dateParts[1], 10) - 1 || new Date().getMonth();
-  const day = parseInt(dateParts[2], 10) || new Date().getDate();
+  const rawYear = parseInt(dateParts[0], 10);
+  const year = !isNaN(rawYear) && rawYear > 2000 ? rawYear : new Date().getFullYear();
+  const rawMonth = parseInt(dateParts[1], 10);
+  const month = !isNaN(rawMonth) && rawMonth >= 1 && rawMonth <= 12 ? rawMonth - 1 : new Date().getMonth();
+  const rawDay = parseInt(dateParts[2], 10);
+  const day = !isNaN(rawDay) && rawDay >= 1 && rawDay <= 31 ? rawDay : new Date().getDate();
 
   // 1. Sleep Log Entry (Classified as Morning reflection of previous night)
   if (record.sleep && (record.sleep.totalSleepMinutes || record.sleep.deepSleepMinutes)) {
