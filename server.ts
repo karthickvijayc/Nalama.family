@@ -134,7 +134,7 @@ async function startServer() {
       isTruthy(process.env.GOOGLE_GENAI_USE_VERTEX_AI) ||
       isTruthy(process.env.VERTEX_AI) ||
       isTruthy(process.env.VERTEXAI) ||
-      (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && Boolean(process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS));
+      (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && Boolean(process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE));
 
     const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GCP_PROJECT;
     const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "us-central1";

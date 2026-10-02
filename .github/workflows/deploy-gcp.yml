@@ -149,7 +149,7 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 5 \
-            --set-env-vars "NODE_ENV=production" \
+            --set-env-vars "NODE_ENV=production,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GAR_REGION" \
             --quiet; then
             
             echo "⚠️ Deployment encountered an error. Recreating service cleanly and retrying..."
@@ -166,7 +166,7 @@ jobs:
               --cpu 1 \
               --min-instances 0 \
               --max-instances 5 \
-              --set-env-vars "NODE_ENV=production" \
+              --set-env-vars "NODE_ENV=production,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GAR_REGION" \
               --quiet
           fi
           
