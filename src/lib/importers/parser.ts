@@ -113,9 +113,46 @@ export function normalizeDateStr(rawDate: any): string {
     }
   }
 
-  const str = String(rawDate).trim().replace(/[T ].*$/, '');
+  const rawStr = String(rawDate).trim();
 
-  // 1. Match YYYY-MM-DD or YYYY/MM/DD
+  // 1. Text Month formats (e.g. "1 Oct 2026, 07:56", "15 Jul 2026, 09:52", "Oct 1, 2026", "1-Oct-2026")
+  const MONTH_MAP: Record<string, number> = {
+    jan: 1, january: 1,
+    feb: 2, february: 2,
+    mar: 3, march: 3,
+    apr: 4, april: 4,
+    may: 5,
+    jun: 6, june: 6,
+    jul: 7, july: 7,
+    aug: 8, august: 8,
+    sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10,
+    nov: 11, november: 11,
+    dec: 12, december: 12
+  };
+
+  const textMonthMatch = rawStr.match(/^(\d{1,2})[-/ ]+([A-Za-z]{3,9})[-/ ,]+(\d{4})/) ||
+                         rawStr.match(/^([A-Za-z]{3,9})[-/ ]+(\d{1,2})[-/ ,]+(\d{4})/);
+  if (textMonthMatch) {
+    const isFirstNum = !isNaN(Number(textMonthMatch[1]));
+    const day = isFirstNum ? parseInt(textMonthMatch[1], 10) : parseInt(textMonthMatch[2], 10);
+    const monthName = (isFirstNum ? textMonthMatch[2] : textMonthMatch[1]).toLowerCase();
+    const year = parseInt(textMonthMatch[3], 10);
+    const m = MONTH_MAP[monthName] || MONTH_MAP[monthName.slice(0, 3)];
+    if (m && day >= 1 && day <= 31 && year >= 2000 && year <= 2100) {
+      const res = `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return res > maxFutureIso ? todayIso : res;
+    }
+  }
+
+  // 2. Standard numeric dates - strip time part ONLY if preceded by date characters (YYYY-MM-DD or DD/MM/YYYY)
+  let str = rawStr;
+  const timeSplit = rawStr.match(/^(\d{1,4}[-/]\d{1,2}[-/]\d{1,4})[T ]/);
+  if (timeSplit) {
+    str = timeSplit[1];
+  }
+
+  // 3. Match YYYY-MM-DD or YYYY/MM/DD
   const ymd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (ymd) {
     const y = parseInt(ymd[1], 10);
@@ -125,7 +162,7 @@ export function normalizeDateStr(rawDate: any): string {
     return res > maxFutureIso ? todayIso : res;
   }
 
-  // 2. Match DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, or MM/DD/YYYY
+  // 4. Match DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, or MM/DD/YYYY
   const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (dmy) {
     const p1 = parseInt(dmy[1], 10);
@@ -144,11 +181,11 @@ export function normalizeDateStr(rawDate: any): string {
       m = p1;
       d = p2;
     } else {
-      // Ambiguous (both <= 12, e.g. 05/10/2026 or 10/01/2026)
-      // Check if one interpretation places the date in the future
+      // Ambiguous (both <= 12, e.g. 01/10/2026 vs 10/01/2026)
       const optP2Month = `${year}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
       const optP1Month = `${year}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
 
+      // Check future constraint first
       if (optP2Month > maxFutureIso && optP1Month <= maxFutureIso) {
         m = p1;
         d = p2;
@@ -156,13 +193,31 @@ export function normalizeDateStr(rawDate: any): string {
         m = p2;
         d = p1;
       } else {
-        // Standard convention: '/' is commonly MM/DD/YYYY in US/Hevy; '-' is commonly DD-MM-YYYY
-        if (str.includes('/')) {
+        // Smart proximity disambiguation:
+        const diffP2 = Math.abs(new Date(optP2Month).getTime() - today.getTime()) / 86400000;
+        const diffP1 = Math.abs(new Date(optP1Month).getTime() - today.getTime()) / 86400000;
+
+        // If one is recent (<= 45 days) and the other is distant (> 90 days), prefer recent!
+        if (diffP2 <= 45 && diffP1 > 90) {
+          m = p2;
+          d = p1;
+        } else if (diffP1 <= 45 && diffP2 > 90) {
           m = p1;
           d = p2;
         } else {
-          m = p2;
-          d = p1;
+          // If equal proximity, default to DD/MM/YYYY (international/Android standard) unless explicit US slash
+          if (str.includes('-')) {
+            m = p2;
+            d = p1;
+          } else {
+            if (diffP2 < diffP1) {
+              m = p2;
+              d = p1;
+            } else {
+              m = p1;
+              d = p2;
+            }
+          }
         }
       }
     }
@@ -173,8 +228,8 @@ export function normalizeDateStr(rawDate: any): string {
     return res > maxFutureIso ? todayIso : res;
   }
 
-  // Fallback to Date parser
-  const parsed = new Date(String(rawDate));
+  // 5. Fallback to Date parser
+  const parsed = new Date(rawStr);
   if (!isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
     const m = String(parsed.getMonth() + 1).padStart(2, '0');
@@ -324,7 +379,7 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
     displayDate,
     transcript,
     category: 'workout',
-    source: 'manual',
+    source: 'synced',
     headline,
     caloriesBurned: session.caloriesActualHr || session.caloriesEstMet || Math.round((session.durationMinutes || 45) * 6),
     activeMinutes: session.durationMinutes || 45,
@@ -370,7 +425,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       displayDate: formatDisplayDate(sleepDate),
       transcript: lines.join('\n'),
       category: 'general',
-      source: 'manual',
+      source: 'synced',
       headline: 'Sleep Architecture',
       sleepMinutes: record.sleep.totalSleepMinutes,
       sleepHours: parseFloat(totalHours),
@@ -404,7 +459,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       displayDate: formatDisplayDate(actDate),
       transcript: lines.join('\n'),
       category: 'workout',
-      source: 'manual',
+      source: 'synced',
       headline: 'Daily Step Activity',
       caloriesBurned: activeCal,
       activeMinutes: activeMins,
@@ -453,7 +508,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       displayDate: formatDisplayDate(vitDate),
       transcript: lines.join('\n'),
       category: 'event',
-      source: 'manual',
+      source: 'synced',
       headline: 'Vitals & Biomarkers',
       restingHeartRate: rhrVal,
       heartRate: record.vitals.heartRateBpm?.avg,
@@ -480,7 +535,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       displayDate: formatDisplayDate(bodyDate),
       transcript: lines.join('\n'),
       category: 'event',
-      source: 'manual',
+      source: 'synced',
       headline: 'Body Measurements',
       timeBucket: 'Morning',
       processed: true
@@ -629,23 +684,49 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       lowerName.includes('workout') || 
       lowerName.includes('strong')
     ) {
-      // Group rows by workout title + date
+      // Group rows by workout title + date + start time
       const sessionMap = new Map<string, CanonicalWorkoutSession>();
 
       rows.forEach((row) => {
-        const date = normalizeDateStr(row['date'] || row['Date'] || row['Start Date'] || row['start_time']);
-        const title = row['title'] || row['Workout Title'] || row['Workout Name'] || row['Routine'] || 'Gym Workout';
-        const workoutId = row['workout_id'] || row['Workout ID'] || row['Hevy Workout ID'] || `${date}-${title.replace(/\s+/g, '_')}`;
-        const rowNotes = (row['notes'] || row['Workout Notes'] || row['Notes'] || '').trim();
+        const rawDateVal = row['start_time'] || row['Start Time'] || row['date'] || row['Date'] || row['Start Date'];
+        const date = normalizeDateStr(rawDateVal);
+        const title = (row['title'] || row['Workout Title'] || row['Workout Name'] || row['Routine'] || 'Gym Workout').trim();
+
+        // Extract clean start time (e.g. "07:56" or "18:30")
+        const startTimeStr = String(row['start_time'] || row['Start Time'] || '').trim();
+        const timeMatch = startTimeStr.match(/(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)/i);
+        const cleanStartTime = timeMatch ? timeMatch[1] : (startTimeStr || '08:00');
+
+        // Robust workout ID:
+        // Use workout_id if explicitly provided; otherwise combine date + cleanStartTime + title
+        const workoutId = row['workout_id'] || row['Workout ID'] || row['Hevy Workout ID'] || 
+          `${date}-${cleanStartTime.replace(/[^a-zA-Z0-9]/g, '')}-${title.replace(/\s+/g, '_')}`;
+
+        const rowNotes = (row['description'] || row['notes'] || row['Workout Notes'] || row['Notes'] || '').trim();
 
         if (!sessionMap.has(workoutId)) {
+          // Duration calculation from duration_minutes or duration_seconds or (end_time - start_time)
+          let durMins = parseDurationMinutes(row['duration_minutes'] || row['Duration (min)'] || row['Duration'] || row['duration']);
+          if (durMins === 45 && (row['duration_seconds'] || row['Duration (s)'])) {
+            const secs = parseFloat(row['duration_seconds'] || row['Duration (s)'] || '0');
+            if (!isNaN(secs) && secs > 0) durMins = Math.round(secs / 60);
+          }
+          const endTimeStr = String(row['end_time'] || row['End Time'] || '').trim();
+          if (durMins === 45 && startTimeStr && endTimeStr) {
+            const sD = new Date(startTimeStr);
+            const eD = new Date(endTimeStr);
+            if (!isNaN(sD.getTime()) && !isNaN(eD.getTime()) && eD.getTime() > sD.getTime()) {
+              durMins = Math.round((eD.getTime() - sD.getTime()) / 60000);
+            }
+          }
+
           sessionMap.set(workoutId, {
             workoutId,
             date,
             title,
-            startTime: row['start_time'] || row['Start Time'] || '08:00',
-            endTime: row['end_time'] || row['End Time'] || '',
-            durationMinutes: parseDurationMinutes(row['duration_minutes'] || row['Duration (min)'] || row['Duration'] || row['duration']),
+            startTime: cleanStartTime,
+            endTime: endTimeStr,
+            durationMinutes: durMins,
             totalVolumeKg: parseFloat(row['total_volume_kg'] || row['Total Volume (kg)'] || '0') || 0,
             totalSets: parseInt(row['total_sets'] || row['Total Sets'] || '0', 10) || 0,
             avgHeartRateBpm: parseFloat(row['avg_hr_bpm'] || row['Avg Heart Rate (bpm)'] || row['Avg Heart Rate'] || '0') || undefined,
@@ -662,7 +743,8 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
           session.notes = rowNotes;
         }
 
-        const exerciseName = row['exercise_name'] || row['Exercise Name'] || row['Exercise'] || row['exercise'] || '';
+        // Support both official Hevy (exercise_title) and standard naming (exercise_name)
+        const exerciseName = (row['exercise_title'] || row['exercise_name'] || row['Exercise Name'] || row['Exercise'] || row['exercise'] || '').trim();
         if (exerciseName) {
           let exGroup = session.exercises.find(e => e.exerciseName === exerciseName);
           if (!exGroup) {
@@ -674,12 +756,19 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             exGroup.notes = rowNotes;
           }
 
-          const weightKg = parseFloat(row['weight_kg'] || row['Weight (kg)'] || row['Weight'] || '0') || 0;
+          let weightKg = parseFloat(row['weight_kg'] || row['Weight (kg)'] || row['Weight'] || '0') || 0;
+          if (weightKg === 0 && (row['weight_lbs'] || row['Weight (lbs)'])) {
+            const lbs = parseFloat(row['weight_lbs'] || row['Weight (lbs)'] || '0');
+            if (!isNaN(lbs) && lbs > 0) weightKg = Math.round(lbs * 0.45359237 * 10) / 10;
+          }
+
           const reps = parseInt(row['reps'] || row['Reps'] || '0', 10) || 0;
           const rpe = parseFloat(row['rpe'] || row['RPE'] || '0') || undefined;
-          const setNumber = parseInt(row['set_number'] || row['Set #'] || row['Set Order'] || String(exGroup.sets.length + 1), 10) || exGroup.sets.length + 1;
-          const setTypeRaw = (row['set_type'] || row['Set Type'] || row['Type'] || 'normal').toLowerCase();
-          const setType: any = ['warmup', 'failure', 'drop', 'rest_pause'].includes(setTypeRaw) ? setTypeRaw : 'normal';
+          const setNumber = parseInt(row['set_index'] || row['set_number'] || row['Set #'] || row['Set Order'] || String(exGroup.sets.length + 1), 10) || exGroup.sets.length + 1;
+          const setTypeRaw = String(row['set_type'] || row['Set Type'] || row['Type'] || 'normal').toLowerCase();
+          const setType: any = ['warmup', 'failure', 'drop', 'dropset', 'rest_pause'].includes(setTypeRaw) 
+            ? (setTypeRaw === 'dropset' ? 'drop' : setTypeRaw) 
+            : 'normal';
 
           exGroup.sets.push({
             setNumber,

@@ -7,7 +7,7 @@ export interface HealthLogEntry {
   displayDate: string;
   transcript: string;
   category: 'workout' | 'meal' | 'medication' | 'event' | 'general';
-  source: 'voice' | 'manual';
+  source: 'voice' | 'manual' | 'synced';
   headline?: string;
   calories?: number;
   caloriesBurned?: number;

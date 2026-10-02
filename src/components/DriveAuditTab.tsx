@@ -20,7 +20,8 @@ import {
   getOrCreateImportsFolders, 
   listImportFolderFiles, 
   readRawDriveFile, 
-  readJsonFile 
+  readJsonFile,
+  writeJsonFile
 } from '../lib/drive';
 import { parseImportFileContent, normalizeDateStr } from '../lib/importers/parser';
 import { executeExternalDataSync } from '../lib/importers/syncEngine';
@@ -51,6 +52,7 @@ interface PartitionFileAudit {
   month: number;
   isFuture: boolean;
   logCount: number;
+  futureLogCount?: number;
 }
 
 export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditTabProps) {
@@ -99,6 +101,10 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
             // Read content
             const content: HealthLogFileContent = await readJsonFile(token, file.id);
             const count = content?.logs?.length || 0;
+            const endOfToday = new Date();
+            endOfToday.setHours(23, 59, 59, 999);
+            const maxFutureAllowed = endOfToday.getTime();
+            const futureLogCount = content?.logs ? content.logs.filter(l => new Date(l.timestamp).getTime() > maxFutureAllowed).length : 0;
             if (content?.logs) {
               allLoadedLogs.push(...content.logs);
             }
@@ -109,7 +115,8 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
               year,
               month,
               isFuture,
-              logCount: count
+              logCount: count,
+              futureLogCount
             });
           }
         }
@@ -149,10 +156,10 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
             const normalized = normalizeDateStr(rawDateStr);
             
             // Look for matching log in allLoadedLogs
-            // Matching can be by workout_id in id or by headline/date
+            // Matching can be by workout_id in id or by headline on the EXACT normalized date
             const matchedLog = allLoadedLogs.find(l => 
               l.id.includes(session.workoutId) || 
-              (l.headline?.toLowerCase() === session.title?.toLowerCase().slice(0, 30) && Math.abs(new Date(l.timestamp).getTime() - new Date(normalized).getTime()) < 86400000 * 2)
+              (new Date(l.timestamp).toISOString().split('T')[0] === normalized && l.headline?.toLowerCase() === session.title?.toLowerCase().slice(0, 30))
             );
 
             let status: RawRecordAudit['status'] = 'matched';
@@ -236,6 +243,52 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
     }
   };
 
+  // Prune rogue future log entries (> end of today) from within valid partition files
+  const handlePurgeFutureLogEntries = async () => {
+    if (!driveState) return;
+    const partsWithFuture = partitionFiles.filter(p => (p.futureLogCount || 0) > 0);
+    const totalFutureLogs = partsWithFuture.reduce((acc, p) => acc + (p.futureLogCount || 0), 0);
+    if (partsWithFuture.length === 0 || totalFutureLogs === 0) {
+      setActionNotice('No rogue future entries found inside partition files.');
+      return;
+    }
+
+    if (!window.confirm(`Prune ${totalFutureLogs} future log entry/entries from ${partsWithFuture.length} partition file(s) (${partsWithFuture.map(p => p.name).join(', ')})? This will cleanly remove entries stamped with dates beyond today.`)) {
+      return;
+    }
+
+    setIsPurging(true);
+    setActionNotice(`Pruning ${totalFutureLogs} future entries from partition files...`);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    const maxAllowedTimestamp = endOfToday.getTime();
+
+    try {
+      let prunedCount = 0;
+      for (const part of partsWithFuture) {
+        const content: HealthLogFileContent = await readJsonFile(driveState.token, part.id);
+        if (content && Array.isArray(content.logs)) {
+          const originalLen = content.logs.length;
+          const cleanedLogs = content.logs.filter(l => new Date(l.timestamp).getTime() <= maxAllowedTimestamp);
+          const diff = originalLen - cleanedLogs.length;
+          if (diff > 0) {
+            content.logs = cleanedLogs;
+            await writeJsonFile(driveState.token, part.name, content, driveState.mainFolderId, part.id);
+            prunedCount += diff;
+          }
+        }
+      }
+      setActionNotice(`Successfully pruned ${prunedCount} rogue future entry/entries from Google Drive partitions.`);
+      await runAuditScan();
+      onRefreshLogs?.();
+    } catch (err: any) {
+      setActionNotice(`Pruning failed: ${err.message}`);
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   // Run a clean re-sync
   const handleCleanResync = async () => {
     if (!driveState) return;
@@ -267,6 +320,7 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
         totalRecords: rawRecords.length,
         matched: rawRecords.filter(r => r.status === 'matched').length,
         futureAnomalies: rawRecords.filter(r => r.status === 'future_anomaly').length,
+        futureLogsInPartitions: partitionFiles.reduce((acc, p) => acc + (p.futureLogCount || 0), 0),
         dateShifted: rawRecords.filter(r => r.status === 'date_shifted').length,
         missing: rawRecords.filter(r => r.status === 'missing').length
       }
@@ -284,6 +338,7 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
   });
 
   const futurePartitionCount = partitionFiles.filter(p => p.isFuture).length;
+  const totalFutureLogsInsidePartitions = partitionFiles.reduce((acc, p) => acc + (p.futureLogCount || 0), 0);
   const anomalyCount = rawRecords.filter(r => r.status === 'future_anomaly' || r.status === 'date_shifted').length;
 
   return (
@@ -359,11 +414,17 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
         </div>
 
         <div className={`p-4 rounded-2xl border shadow-2xs flex flex-col gap-1 ${
-          futurePartitionCount > 0 ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-white border-stone-200'
+          futurePartitionCount > 0 || totalFutureLogsInsidePartitions > 0 ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-white border-stone-200'
         }`}>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700">Rogue Future Files</span>
-          <span className="text-2xl font-black text-rose-600">{futurePartitionCount}</span>
-          <span className="text-[10px] text-rose-600/80">Years &gt; 2026 (e.g. 2028, 4574)</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700">Rogue Future Data</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-rose-600">{totalFutureLogsInsidePartitions}</span>
+            <span className="text-xs font-bold text-rose-700">logs</span>
+            {futurePartitionCount > 0 && (
+              <span className="text-xs font-semibold text-rose-600">({futurePartitionCount} files)</span>
+            )}
+          </div>
+          <span className="text-[10px] text-rose-600/80">Entries stamped &gt; today</span>
         </div>
 
         <div className={`p-4 rounded-2xl border shadow-2xs flex flex-col gap-1 ${
@@ -371,32 +432,46 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
         }`}>
           <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Date Anomalies</span>
           <span className="text-2xl font-black text-amber-600">{anomalyCount}</span>
-          <span className="text-[10px] text-amber-700/80">Swapped or future dates</span>
+          <span className="text-[10px] text-amber-700/80">Shifted import dates</span>
         </div>
       </div>
 
       {/* Repair Actions if Anomalies / Future Partitions detected */}
-      {(futurePartitionCount > 0 || anomalyCount > 0) && (
+      {(futurePartitionCount > 0 || totalFutureLogsInsidePartitions > 0 || anomalyCount > 0) && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <AlertTriangle size={20} className="text-rose-600 shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-xs font-bold text-rose-900">Future Partitions / Date Inversions Detected</h3>
+              <h3 className="text-xs font-bold text-rose-900">Data Discrepancies or Future Entries Detected</h3>
               <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed">
-                Found {futurePartitionCount} rogue future partition(s) and {anomalyCount} shifted records caused by earlier date parsing. You can purge future files and re-sync cleanly with the updated parser now.
+                {totalFutureLogsInsidePartitions > 0 && `${totalFutureLogsInsidePartitions} rogue future log(s) exist inside active monthly files. `}
+                {futurePartitionCount > 0 && `${futurePartitionCount} rogue future partition file(s) found. `}
+                {anomalyCount > 0 && `${anomalyCount} raw records have shifted dates from earlier imports. `}
+                You can prune rogue entries or run a clean re-sync with the updated parser now.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {totalFutureLogsInsidePartitions > 0 && (
+              <button
+                onClick={handlePurgeFutureLogEntries}
+                disabled={isPurging}
+                className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
+                title="Prune future-dated logs (> today) directly from active monthly partition files"
+              >
+                <Trash2 size={13} />
+                <span>{isPurging ? 'Pruning...' : `Prune ${totalFutureLogsInsidePartitions} Future Entries`}</span>
+              </button>
+            )}
             {futurePartitionCount > 0 && (
               <button
                 onClick={handlePurgeFuturePartitions}
                 disabled={isPurging}
-                className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
+                className="bg-stone-800 hover:bg-stone-900 disabled:opacity-50 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
               >
                 <Trash2 size={13} />
-                <span>{isPurging ? 'Purging...' : `Purge ${futurePartitionCount} Future File(s)`}</span>
+                <span>{isPurging ? 'Purging...' : `Delete ${futurePartitionCount} Future File(s)`}</span>
               </button>
             )}
             <button
@@ -430,12 +505,17 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
             partitionFiles.map(part => (
               <div key={part.id} className="p-3 px-4 flex items-center justify-between text-xs hover:bg-stone-50/60 transition-colors">
                 <div className="flex items-center gap-2.5">
-                  <FileText size={15} className={part.isFuture ? 'text-rose-500' : 'text-stone-400'} />
+                  <FileText size={15} className={part.isFuture || (part.futureLogCount || 0) > 0 ? 'text-rose-500' : 'text-stone-400'} />
                   <div>
                     <span className="font-mono font-bold text-stone-900">{part.name}</span>
                     {part.isFuture && (
                       <span className="ml-2 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                         Future Year ({part.year})
+                      </span>
+                    )}
+                    {!part.isFuture && (part.futureLogCount || 0) > 0 && (
+                      <span className="ml-2 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                        {part.futureLogCount} future log(s)
                       </span>
                     )}
                   </div>

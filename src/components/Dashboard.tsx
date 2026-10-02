@@ -1,6 +1,6 @@
 import { 
   Heart, 
-  Footprints,
+  Footprints, 
   Flame, 
   Moon, 
   Cloud, 
@@ -22,7 +22,13 @@ import {
   Target,
   Activity,
   Sparkles,
-  Timer
+  Timer,
+  X,
+  RefreshCw,
+  Copy,
+  Check,
+  ChevronRight,
+  FileText
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket } from '../types';
@@ -44,7 +50,7 @@ interface ActivityEntry {
   title: string;
   subtitle: string;
   status?: 'completed' | 'pending';
-  source?: 'voice' | 'manual';
+  source?: 'voice' | 'manual' | 'synced';
   rawTranscript?: string;
   timestamp?: number;
   timeBucket: TimeBucket;
@@ -54,6 +60,11 @@ interface ActivityEntry {
   calories?: number;
   caloriesBurned?: number;
   activeMinutes?: number;
+  steps?: number;
+  heartRate?: number;
+  restingHeartRate?: number;
+  sleepHours?: number;
+  sleepEfficiency?: number;
 }
 
 function getDateInfo(date: Date) {
@@ -176,8 +187,9 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [todayHeartRate, setTodayHeartRate] = useState<number | null>(null);
   const [todaySleep, setTodaySleep] = useState<{ hours: number; efficiency?: number } | null>(null);
   const [activeFileName, setActiveFileName] = useState<string>('logs.json');
-  const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('');
+  const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('Today & Past 30 Days');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
+  const [selectedActivity, setSelectedActivity] = useState<ActivityEntry | null>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -228,24 +240,56 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
           }
         }
 
-        // 2. Load monthly health logs
-        const { fileId, fileName, monthKey } = await getOrCreateMonthlyLogFile(driveState.token, driveState.mainFolderId);
+        // 2. Load health logs for Today and past 30 days (current month + previous month)
+        const { fileId, fileName } = await getOrCreateMonthlyLogFile(driveState.token, driveState.mainFolderId);
         setActiveFileName(fileName);
-        setActiveMonthDisplay(monthKey);
-        const logData = await readJsonFile(driveState.token, fileId);
-        let logs: HealthLogEntry[] = [];
-        if (logData && Array.isArray(logData.logs)) {
-          logs = logData.logs;
+        setActiveMonthDisplay('Today & Past 30 Days');
+
+        const logMap = new Map<string, HealthLogEntry>();
+        const currentData = await readJsonFile(driveState.token, fileId);
+        if (currentData && Array.isArray(currentData.logs)) {
+          currentData.logs.forEach((l: HealthLogEntry) => logMap.set(l.id, l));
         }
 
-        // If current month has no logs, inspect other monthly partition files in Drive so imported data is immediately shown
-        if (logs.length === 0) {
-          const monthlyFiles = await listMonthlyLogFiles(driveState.token, driveState.mainFolderId);
+        // Also load previous month's logs to ensure 30 full days of history
+        const now = new Date();
+        const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonthNum = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+        const prevMonthFileName = `logs_${prevMonthDate.getFullYear()}_${prevMonthNum}.json`;
+        
+        const monthlyFiles = await listMonthlyLogFiles(driveState.token, driveState.mainFolderId);
+        const prevFile = monthlyFiles.find(f => f.name === prevMonthFileName);
+        if (prevFile) {
+          const prevData = await readJsonFile(driveState.token, prevFile.id);
+          if (prevData && Array.isArray(prevData.logs)) {
+            prevData.logs.forEach((l: HealthLogEntry) => {
+              if (!logMap.has(l.id)) logMap.set(l.id, l);
+            });
+          }
+        }
+
+        // Filter: Keep only today and past 30 days; EXCLUDE any future logs (> end of today)
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+        let logs = Array.from(logMap.values()).filter(l => {
+          const t = new Date(l.timestamp).getTime();
+          return !isNaN(t) && t <= endOfToday.getTime() && t >= thirtyDaysAgo.getTime();
+        });
+
+        // Fallback: If no logs in past 30 days, check other archive files so user still sees past data if needed
+        if (logs.length === 0 && monthlyFiles.length > 0) {
           for (const mFile of monthlyFiles) {
-            if (mFile.id !== fileId) {
-              const pastData = await readJsonFile(driveState.token, mFile.id);
-              if (pastData && Array.isArray(pastData.logs) && pastData.logs.length > 0) {
-                logs = pastData.logs;
+            if (mFile.id !== fileId && mFile.id !== prevFile?.id) {
+              const archiveData = await readJsonFile(driveState.token, mFile.id);
+              if (archiveData && Array.isArray(archiveData.logs) && archiveData.logs.length > 0) {
+                logs = archiveData.logs.filter(l => {
+                  const t = new Date(l.timestamp).getTime();
+                  return !isNaN(t) && t <= endOfToday.getTime();
+                });
                 setActiveFileName(mFile.name);
                 setActiveMonthDisplay(mFile.month);
                 break;
@@ -436,7 +480,12 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         rawTranscript: l.transcript,
         calories: l.calories,
         caloriesBurned: l.caloriesBurned,
-        activeMinutes: l.activeMinutes
+        activeMinutes: l.activeMinutes,
+        steps: l.steps,
+        heartRate: l.heartRate,
+        restingHeartRate: l.restingHeartRate,
+        sleepHours: l.sleepHours,
+        sleepEfficiency: l.sleepEfficiency
       })),
     ];
 
@@ -903,6 +952,7 @@ const toggleDateCollapse = (dateKey: string) => {
                                 key={activity.id} 
                                 activity={activity} 
                                 onToggle={() => toggleStatus(activity.id, activity.status as any)} 
+                                onSelect={(act) => setSelectedActivity(act)}
                               />
                             ))}
                           </div>
@@ -916,6 +966,185 @@ const toggleDateCollapse = (dateKey: string) => {
           </div>
         )}
       </section>
+
+      {/* Full Activity Details Modal */}
+      <ActivityDetailModal 
+        activity={selectedActivity} 
+        onClose={() => setSelectedActivity(null)} 
+      />
+    </div>
+  );
+}
+
+function ActivityDetailModal({ 
+  activity, 
+  onClose 
+}: { 
+  activity: ActivityEntry | null; 
+  onClose: () => void; 
+}) {
+  const [copied, setCopied] = useState(false);
+  if (!activity) return null;
+
+  const isSynced = activity.source === 'synced' || (activity.source === 'manual' && activity.id.startsWith('import-'));
+
+  const handleCopy = () => {
+    const textToCopy = `Activity: ${activity.title} (${activity.dateLabel} • ${activity.time})\nCategory: ${activity.category}\nSource: ${isSynced ? 'Synced' : (activity.source || 'Manual')}\n\nTranscript & Notes:\n${activity.rawTranscript || activity.subtitle}\n\nLog ID: ${activity.id}`;
+    navigator.clipboard.writeText(textToCopy);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="p-5 pb-4 border-b border-stone-100 flex items-start justify-between gap-3 bg-stone-50/70">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className={`p-3 rounded-2xl ${
+              activity.category === 'workout' ? 'bg-teal-100 text-teal-700' : 
+              activity.category === 'meal' ? 'bg-amber-100 text-amber-700' : 
+              activity.category === 'medication' ? 'bg-rose-100 text-rose-700' : 
+              activity.category === 'event' ? 'bg-canopy-100 text-canopy-800' : 
+              'bg-stone-200 text-stone-700'
+            } flex-shrink-0 shadow-2xs mt-0.5`}>
+              {activity.category === 'workout' && <Dumbbell size={22} />}
+              {activity.category === 'meal' && <Utensils size={22} />}
+              {activity.category === 'medication' && <Pill size={22} />}
+              {activity.category === 'event' && <HeartPulse size={22} />}
+              {activity.category === 'general' && <MessageSquare size={22} />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                  {activity.category}
+                </span>
+                {isSynced && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/80">
+                    <RefreshCw size={10} className="text-teal-600" /> Synced
+                  </span>
+                )}
+                {activity.source === 'voice' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                    <Mic size={11} className="text-stone-500" /> Voice Note
+                  </span>
+                )}
+                {activity.source === 'manual' && !isSynced && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                    Manual Log
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl font-extrabold text-stone-900 mt-1 leading-snug break-words">
+                {activity.title}
+              </h2>
+              <p className="text-xs font-semibold text-stone-500 mt-0.5">
+                {activity.dateLabel} • {activity.time} ({activity.dayName})
+              </p>
+            </div>
+          </div>
+
+          <button 
+            type="button" 
+            onClick={onClose} 
+            className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 rounded-full transition-colors flex-shrink-0"
+            aria-label="Close"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Scrollable Body */}
+        <div className="p-5 overflow-y-auto flex flex-col gap-4">
+          {/* Key Metric Tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {activity.activeMinutes !== undefined && activity.activeMinutes > 0 && (
+              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Duration</span>
+                <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
+                  {activity.activeMinutes} <span className="text-xs font-semibold text-stone-400">mins</span>
+                </span>
+              </div>
+            )}
+            {(activity.caloriesBurned !== undefined || activity.calories !== undefined) && (
+              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Calories</span>
+                <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
+                  {activity.caloriesBurned || activity.calories} <span className="text-xs font-semibold text-stone-400">kcal</span>
+                </span>
+              </div>
+            )}
+            {activity.steps !== undefined && activity.steps > 0 && (
+              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Steps</span>
+                <span className="text-lg font-extrabold text-stone-900 mt-0.5">
+                  {activity.steps.toLocaleString()}
+                </span>
+              </div>
+            )}
+            {activity.restingHeartRate !== undefined && (
+              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Resting HR</span>
+                <span className="text-lg font-extrabold text-rose-600 mt-0.5 flex items-baseline gap-1">
+                  {activity.restingHeartRate} <span className="text-xs font-semibold text-stone-400">bpm</span>
+                </span>
+              </div>
+            )}
+            {activity.sleepHours !== undefined && (
+              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Sleep</span>
+                <span className="text-lg font-extrabold text-teal-700 mt-0.5 flex items-baseline gap-1">
+                  {activity.sleepHours} <span className="text-xs font-semibold text-stone-400">hrs</span>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Full Record Details / Transcript */}
+          <div className="flex flex-col gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+              <FileText size={14} /> Full Record Details
+            </h3>
+            <div className="bg-stone-50/90 border border-stone-200/80 rounded-2xl p-4 text-sm font-medium text-stone-800 whitespace-pre-wrap leading-relaxed font-sans">
+              {activity.rawTranscript || activity.subtitle || 'No transcript details available.'}
+            </div>
+          </div>
+
+          {/* Technical Metadata */}
+          <div className="flex flex-col gap-1.5 pt-2 border-t border-stone-100">
+            <div className="flex items-center justify-between text-xs text-stone-400">
+              <span className="font-mono truncate max-w-[280px]" title={activity.id}>
+                ID: {activity.id}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-stone-100 hover:bg-stone-200/80 text-stone-700 font-bold rounded-lg transition-colors text-[11px]"
+              >
+                {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                {copied ? 'Copied' : 'Copy Log'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 border-t border-stone-100 bg-stone-50/50 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl bg-stone-900 text-white font-bold text-sm hover:bg-stone-800 transition-colors shadow-xs"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -950,7 +1179,16 @@ function FilterChip({ label, active, onClick }: { label: string, active: boolean
   );
 }
 
-function ActivityRow({ activity, onToggle }: { key?: string; activity: ActivityEntry; onToggle: () => void }) {
+function ActivityRow({ 
+  activity, 
+  onToggle,
+  onSelect 
+}: { 
+  key?: string; 
+  activity: ActivityEntry; 
+  onToggle: () => void;
+  onSelect: (act: ActivityEntry) => void;
+}) {
   const getCategoryConfig = () => {
     switch (activity.category) {
       case 'workout':
@@ -995,24 +1233,34 @@ function ActivityRow({ activity, onToggle }: { key?: string; activity: ActivityE
   const config = getCategoryConfig();
   const isInteractive = activity.status !== undefined;
   const isCompleted = activity.status === 'completed';
+  const isSynced = activity.source === 'synced' || (activity.source === 'manual' && activity.id.startsWith('import-'));
 
   return (
-    <div className="flex items-start justify-between p-4 gap-3 rounded-2xl hover:bg-stone-50/70 transition-colors">
+    <div 
+      onClick={() => onSelect(activity)}
+      className="group flex items-start justify-between p-4 gap-3 rounded-2xl hover:bg-stone-50/80 transition-all cursor-pointer border border-transparent hover:border-stone-200/80"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(activity); }}
+      aria-label={`View details for ${activity.title}`}
+    >
       <div className="flex items-start gap-3.5 flex-1 min-w-0">
         {/* Category Icon */}
-        <div className={`p-3 rounded-2xl ${config.bgColor} flex-shrink-0 mt-0.5`}>
+        <div className={`p-3 rounded-2xl ${config.bgColor} flex-shrink-0 mt-0.5 shadow-2xs group-hover:scale-105 transition-transform`}>
           {config.icon}
         </div>
 
         {/* Content */}
         <div className="flex flex-col gap-1 min-w-0 mt-0.5">
           {/* Headline in bold - top element */}
-          <h3 className={`text-base font-bold leading-snug ${isCompleted && !activity.source ? 'text-stone-400 line-through' : 'text-stone-900'}`}>
-            {activity.title}
-          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className={`text-base font-bold leading-snug ${isCompleted && !activity.source ? 'text-stone-400 line-through' : 'text-stone-900'} group-hover:text-teal-900 transition-colors`}>
+              {activity.title}
+            </h3>
+          </div>
 
           {/* Badges in the next row */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${config.badgeColor}`}>
               {config.badgeText}
             </span>
@@ -1031,12 +1279,22 @@ function ActivityRow({ activity, onToggle }: { key?: string; activity: ActivityE
                 <Flame size={11} className="text-orange-600" /> {activity.calories} kcal
               </span>
             )}
+            {typeof activity.steps === 'number' && activity.steps > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-tree-800 bg-tree-50 px-2 py-0.5 rounded-md border border-tree-200/80">
+                <Footprints size={11} className="text-tree-600" /> {activity.steps.toLocaleString()} steps
+              </span>
+            )}
+            {isSynced && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/80 shadow-2xs">
+                <RefreshCw size={10} className="text-teal-600" /> Synced
+              </span>
+            )}
             {activity.source === 'voice' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
                 <Mic size={11} className="text-stone-500" /> Voice Note
               </span>
             )}
-            {activity.source === 'manual' && (
+            {activity.source === 'manual' && !isSynced && (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
                 Manual Log
               </span>
@@ -1045,30 +1303,39 @@ function ActivityRow({ activity, onToggle }: { key?: string; activity: ActivityE
 
           {/* Memo text / subtext in small font */}
           {activity.subtitle && (
-            <p className="text-sm font-medium text-stone-500 leading-relaxed mt-0.5">
+            <p className="text-sm font-medium text-stone-500 leading-relaxed mt-0.5 line-clamp-2">
               {activity.subtitle}
             </p>
           )}
 
           {/* Event timestamp at the bottom like audit (12Hours format) */}
-          <span className="text-stone-400 text-[11px] font-bold uppercase tracking-wider mt-1">
-            {activity.time}
-          </span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-stone-400 text-[11px] font-bold uppercase tracking-wider">
+              {activity.time}
+            </span>
+            <span className="text-[11px] font-bold text-teal-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+              View details <ChevronRight size={12} />
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Action / Status Toggle if applicable */}
-      {isInteractive ? (
-        <button 
-          onClick={onToggle}
-          className={`p-2 rounded-full transition-colors flex-shrink-0 mt-1 ${isCompleted ? 'text-teal-600' : 'text-stone-300 hover:text-stone-400'}`}
-          aria-label={isCompleted ? 'Mark as pending' : 'Mark as completed'}
-        >
-          {isCompleted ? <CheckCircle2 size={32} className="fill-teal-50" /> : <Circle size={32} />}
-        </button>
-      ) : (
-        <div className="w-10 flex-shrink-0" />
-      )}
+      <div className="flex items-center gap-1 flex-shrink-0 mt-1" onClick={(e) => e.stopPropagation()}>
+        {isInteractive ? (
+          <button 
+            onClick={onToggle}
+            className={`p-2 rounded-full transition-colors flex-shrink-0 ${isCompleted ? 'text-teal-600' : 'text-stone-300 hover:text-stone-400'}`}
+            aria-label={isCompleted ? 'Mark as pending' : 'Mark as completed'}
+          >
+            {isCompleted ? <CheckCircle2 size={32} className="fill-teal-50" /> : <Circle size={32} />}
+          </button>
+        ) : (
+          <div className="p-2 text-stone-300 group-hover:text-stone-600 transition-colors">
+            <ChevronRight size={20} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
