@@ -561,6 +561,7 @@ export function convertDailyHealthRecordToLogEntries(record: CanonicalDailyHealt
       category: 'event',
       source: 'synced',
       headline: 'Body Measurements',
+      weight: weight,
       timeBucket: 'Morning',
       processed: true
     });

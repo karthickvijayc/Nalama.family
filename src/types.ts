@@ -18,8 +18,45 @@ export interface HealthLogEntry {
   sleepMinutes?: number;
   sleepHours?: number;
   sleepEfficiency?: number;
+  weight?: number;
   timeBucket?: TimeBucket;
   processed?: boolean;
+}
+
+export type TrendMetricType = 'steps' | 'active_time' | 'heart_rate' | 'weight' | 'calories' | 'sleep' | 'tasks';
+
+export type TrendTimeframe = 'month' | '3m' | '6m' | '12m';
+
+export interface TrendDataPoint {
+  date: string; // YYYY-MM-DD
+  label: string; // e.g. "Oct 1" or "W38"
+  fullDateLabel: string;
+  timestamp: number;
+  value: number;
+  secondaryValue?: number; // e.g. consumed vs burned for calories
+  target?: number;
+  isEstimated?: boolean;
+}
+
+export interface TrendMetricSummary {
+  metric: TrendMetricType;
+  title: string;
+  unit: string;
+  currentValue: number | null;
+  currentFormatted: string;
+  averageValue: number | null;
+  averageFormatted: string;
+  minValue: number | null;
+  minFormatted: string;
+  maxValue: number | null;
+  maxFormatted: string;
+  targetValue: number | null;
+  targetFormatted: string;
+  deltaText: string;
+  deltaPositive: boolean | null;
+  points: TrendDataPoint[];
+  hasRealData: boolean;
+  hasPregeneratedData: boolean;
 }
 
 export interface MonthlyLogFile {

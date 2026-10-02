@@ -29,11 +29,15 @@ import {
   Check,
   ChevronRight,
   FileText,
-  Quote
+  Quote,
+  Scale,
+  TrendingUp
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
-import { DriveState, HealthLogEntry, UserProfile, TimeBucket } from '../types';
+import { DriveState, HealthLogEntry, UserProfile, TimeBucket, TrendMetricType } from '../types';
 import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName, listMonthlyLogFiles } from '../lib/drive';
+import TrendModal from './TrendModal';
+import { parseProfileWeight, extractWeightFromLog } from '../lib/trendGenerator';
 
 type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
@@ -180,6 +184,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [logStatusOverrides, setLogStatusOverrides] = useState<Record<string, 'completed' | 'pending'>>({});
   const [selectedFilter, setSelectedFilter] = useState<ActivityCategory>('all');
   const [healthLogs, setHealthLogs] = useState<HealthLogEntry[]>([]);
+  const [allHistoricalLogs, setAllHistoricalLogs] = useState<HealthLogEntry[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [todayCaloriesConsumed, setTodayCaloriesConsumed] = useState<number | null>(null);
   const [todayCaloriesBurned, setTodayCaloriesBurned] = useState<number | null>(null);
@@ -187,6 +192,8 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [todaySteps, setTodaySteps] = useState<number | null>(null);
   const [todayHeartRate, setTodayHeartRate] = useState<number | null>(null);
   const [todaySleep, setTodaySleep] = useState<{ hours: number; efficiency?: number } | null>(null);
+  const [todayWeight, setTodayWeight] = useState<number | null>(null);
+  const [selectedTrendMetric, setSelectedTrendMetric] = useState<TrendMetricType | null>(null);
   const [activeFileName, setActiveFileName] = useState<string>('logs.json');
   const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('Today & Past 30 Days');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
@@ -202,6 +209,8 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         setTodaySteps(null);
         setTodayHeartRate(null);
         setTodaySleep(null);
+        setTodayWeight(null);
+        setAllHistoricalLogs([]);
         return;
       }
 
@@ -269,14 +278,32 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
           }
         }
 
-        // Filter: Keep only today and past 30 days; EXCLUDE any future logs (> end of today)
+        // Also load other monthly files in Drive in parallel for complete 3M/6M/12M trend history
+        const otherMonthlyFiles = monthlyFiles.filter(f => f.id !== fileId && f.id !== prevFile?.id);
+        if (otherMonthlyFiles.length > 0) {
+          const otherData = await Promise.all(
+            otherMonthlyFiles.map(f => readJsonFile(driveState.token, f.id).catch(() => null))
+          );
+          otherData.forEach(d => {
+            if (d && Array.isArray(d.logs)) {
+              d.logs.forEach((l: HealthLogEntry) => {
+                if (!logMap.has(l.id)) logMap.set(l.id, l);
+              });
+            }
+          });
+        }
+
+        const allLogs = Array.from(logMap.values());
+        setAllHistoricalLogs(allLogs);
+
+        // Filter: Keep only today and past 30 days for primary timeline view; EXCLUDE any future logs (> end of today)
         const endOfToday = new Date();
         endOfToday.setHours(23, 59, 59, 999);
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-        let logs = Array.from(logMap.values()).filter(l => {
+        let logs = allLogs.filter(l => {
           const t = new Date(l.timestamp).getTime();
           return !isNaN(t) && t <= endOfToday.getTime() && t >= thirtyDaysAgo.getTime();
         });
@@ -309,6 +336,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         let steps: number | null = null;
         let heartRate: number | null = null;
         let sleep: { hours: number; efficiency?: number } | null = null;
+        let weight: number | null = null;
 
         logs.forEach((log: HealthLogEntry) => {
           const logDate = log.timestamp ? new Date(log.timestamp) : null;
@@ -379,6 +407,12 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
               }
             }
 
+            // Weight
+            const w = extractWeightFromLog(log);
+            if (w !== null) {
+              weight = w;
+            }
+
             // Sleep logged today (e.g. woke up today morning)
             if (typeof log.sleepHours === 'number' && log.sleepHours > 0) {
               sleep = { hours: log.sleepHours, efficiency: log.sleepEfficiency };
@@ -397,6 +431,18 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
             }
           }
         });
+
+        // If no weight logged today, search latest weight in all historical logs
+        if (weight === null) {
+          const sorted = allLogs.slice().sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          for (const l of sorted) {
+            const w = extractWeightFromLog(l);
+            if (w !== null) {
+              weight = w;
+              break;
+            }
+          }
+        }
 
         // If no sleep was logged today morning, check if sleep was logged yesterday
         if (!sleep) {
@@ -432,6 +478,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         setTodaySteps(steps);
         setTodayHeartRate(heartRate);
         setTodaySleep(sleep);
+        setTodayWeight(weight);
       } catch (err) {
         console.warn('Could not load dashboard data from Drive:', err);
         setRoutineActivities([]);
@@ -441,6 +488,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         setTodaySteps(null);
         setTodayHeartRate(null);
         setTodaySleep(null);
+        setTodayWeight(null);
       } finally {
         setIsLoadingLogs(false);
       }
@@ -600,6 +648,9 @@ const toggleDateCollapse = (dateKey: string) => {
   const targetSteps = userProfile?.userTargets?.steps || userProfile?.aiTargets?.steps || 6000;
   const targetActiveTime = userProfile?.userTargets?.activeTimeMins || userProfile?.aiTargets?.activeTimeMins || 30;
   const targetHR = userProfile?.userTargets?.restingHeartRate || userProfile?.aiTargets?.restingHeartRate || 65;
+  const profileWeight = parseProfileWeight(userProfile?.weight);
+  const targetWeight = parseProfileWeight(userProfile?.userTargets?.weight);
+  const displayWeight = todayWeight !== null ? todayWeight : profileWeight;
 
   // Task Completion
   const todayRoutines = routineActivities;
@@ -619,7 +670,7 @@ const toggleDateCollapse = (dateKey: string) => {
         </div>
       </header>
 
-      {/* Vitals Summary - Restructured 4-Row Layout */}
+      {/* Vitals Summary - Restructured Layout with Trends & Weight Card */}
       <section className="flex flex-col gap-4">
         {/* Row 1: Left - Steps, Right - Active Time */}
         <div className="grid grid-cols-2 gap-4">
@@ -628,6 +679,7 @@ const toggleDateCollapse = (dateKey: string) => {
             title="Daily Steps" 
             value={todaySteps !== null ? todaySteps.toLocaleString() : "-"} 
             subtitle={`Goal: ${targetSteps.toLocaleString()}`} 
+            onClick={() => setSelectedTrendMetric('steps')}
           />
           <VitalCard 
             icon={<Activity size={24} className="text-blue-500" />} 
@@ -635,198 +687,134 @@ const toggleDateCollapse = (dateKey: string) => {
             value={todayActiveMinutes !== null ? todayActiveMinutes.toString() : "-"} 
             unit={todayActiveMinutes !== null ? "m" : undefined} 
             subtitle={`Goal: ${targetActiveTime}m`} 
+            onClick={() => setSelectedTrendMetric('active_time')}
           />
         </div>
 
-        {/* Row 2: Left - Resting Heart Rate, Right - Daily Task Completion Tracker */}
+        {/* Row 2: Left - Resting Heart Rate, Right - Body Weight */}
         <div className="grid grid-cols-2 gap-4">
           <VitalCard 
             icon={<Heart size={24} className="text-rose-500" />} 
             title="Heart Rate" 
             value={todayHeartRate !== null ? String(todayHeartRate) : "-"} 
             unit={todayHeartRate !== null ? "bpm" : undefined} 
-            subtitle={`Target Resting: ${targetHR} bpm`} 
+            subtitle={`Target: ${targetHR} bpm`} 
+            onClick={() => setSelectedTrendMetric('heart_rate')}
           />
+          <VitalCard 
+            icon={<Scale size={24} className="text-teal-600" />} 
+            title="Weight" 
+            value={displayWeight !== null ? (Math.round(displayWeight * 10) / 10).toFixed(1) : "-"} 
+            unit={displayWeight !== null ? "kg" : undefined} 
+            subtitle={targetWeight ? `Goal: ${targetWeight} kg` : (profileWeight ? `Baseline: ${profileWeight} kg` : "Track weight")} 
+            onClick={() => setSelectedTrendMetric('weight')}
+          />
+        </div>
+
+        {/* Row 3: Simplified Calories Balance Card */}
+        <div 
+          onClick={() => setSelectedTrendMetric('calories')}
+          className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm hover:border-stone-300 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3.5 group active:scale-[0.99]"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-stone-500 font-semibold text-lg">
+              <Flame size={24} className="text-orange-500" />
+              <span>Calories</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
+                Target: {targetCalories.toLocaleString()} kcal
+              </span>
+              <ChevronRight size={18} className="text-stone-300 group-hover:text-stone-600 transition-colors" />
+            </div>
+          </div>
+
+          {/* Clean 3-Metric Summary: Burned, Intake, Net */}
+          <div className="grid grid-cols-3 gap-3 my-0.5">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Burned</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-2xl sm:text-3xl font-extrabold text-teal-600">
+                  {todayCaloriesBurned !== null ? todayCaloriesBurned.toLocaleString() : "-"}
+                </span>
+                {todayCaloriesBurned !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
+              </div>
+              <span className="text-[11px] text-stone-400 font-medium">Workouts</span>
+            </div>
+
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Intake</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-2xl sm:text-3xl font-extrabold text-orange-600">
+                  {todayCaloriesConsumed !== null ? todayCaloriesConsumed.toLocaleString() : "-"}
+                </span>
+                {todayCaloriesConsumed !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
+              </div>
+              <span className="text-[11px] text-stone-400 font-medium">{todayCaloriesConsumed !== null ? "Meals logged" : "No intake"}</span>
+            </div>
+
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Net</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-2xl sm:text-3xl font-extrabold text-stone-900">
+                  {todayCaloriesConsumed !== null || todayCaloriesBurned !== null ? (
+                    ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > 0 
+                      ? `+${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}` 
+                      : ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()
+                  ) : "-"}
+                </span>
+                {(todayCaloriesConsumed !== null || todayCaloriesBurned !== null) && <span className="text-xs font-bold text-stone-400">kcal</span>}
+              </div>
+              <span className="text-[11px] text-stone-400 font-medium">
+                {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'Over target' : 'Within target'}
+              </span>
+            </div>
+          </div>
+
+          {/* Clean Progress Bar against Daily Target */}
+          <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden flex">
+            <div 
+              className="h-full bg-teal-500 rounded-full transition-all duration-500" 
+              style={{ width: `${Math.min(100, Math.round(((todayCaloriesBurned || 0) / targetCalories) * 100))}%` }}
+              title={`Burned: ${todayCaloriesBurned || 0} kcal`}
+            />
+          </div>
+
+          {/* Subtitle / Footer with Trend link */}
+          <div className="flex items-center justify-between text-xs text-stone-500 font-medium pt-0.5">
+            <span>
+              {todayCaloriesBurned ? `${todayCaloriesBurned.toLocaleString()} kcal active burn today` : 'No workout burn recorded today'}
+            </span>
+            <span className="text-tree-700 font-bold group-hover:underline flex items-center gap-0.5 text-xs">
+              View Trends <ChevronRight size={14} />
+            </span>
+          </div>
+        </div>
+
+        {/* Row 4: Left - Daily Tasks, Right - Sleep Recovery */}
+        <div className="grid grid-cols-2 gap-4">
           <VitalCard 
             icon={<Target size={24} className="text-purple-500" />} 
             title="Daily Tasks" 
             value={hasTasks ? taskCompletionPercentage : "-"} 
             unit={hasTasks ? "%" : undefined} 
             subtitle={taskCompletionText} 
+            onClick={() => setSelectedTrendMetric('tasks')}
+          />
+          <VitalCard 
+            icon={<Moon size={24} className="text-canopy-600" />} 
+            title="Sleep" 
+            value={todaySleep !== null ? String(todaySleep.hours) : "-"} 
+            unit={todaySleep !== null ? "hrs" : undefined} 
+            subtitle={
+              todaySleep 
+                ? (todaySleep.efficiency ? `${todaySleep.efficiency}% efficiency` : 'Restful sleep')
+                : 'Aim for 7-8 hrs'
+            } 
+            onClick={() => setSelectedTrendMetric('sleep')}
           />
         </div>
-
-        {/* Row 3: Rich Visual Calories Tracker - Consumed & Burnt vs Target (Stacked / Visual Bar) */}
-        <div className="bg-white rounded-[1.75rem] border border-stone-200/90 p-5 shadow-xs flex flex-col gap-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-orange-50 border border-orange-200/80 flex items-center justify-center text-orange-600 shadow-2xs">
-                <Flame size={20} />
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-stone-900 leading-tight">Calories Balance</h3>
-                <p className="text-xs text-stone-500 font-medium">Consumed & Burnt vs Daily Target</p>
-              </div>
-            </div>
-            
-            {/* Target source badge */}
-            <div className="flex items-center gap-1.5">
-              {isCustomCalorieTarget ? (
-                <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/80 shadow-2xs">
-                  🎯 Target: {targetCalories.toLocaleString()} kcal
-                </span>
-              ) : isAiCalorieTarget ? (
-                <span className="inline-flex items-center gap-1 text-xs font-bold text-teal-900 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200/80 shadow-2xs">
-                  <Sparkles size={12} className="text-teal-600" /> AI Target: {targetCalories.toLocaleString()} kcal
-                </span>
-              ) : (
-                <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
-                  Target: {targetCalories.toLocaleString()} kcal
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Visual Stacked & Comparative Bars */}
-          <div className="flex flex-col gap-3.5 bg-stone-50/80 p-4 rounded-2xl border border-stone-100">
-            {/* Consumed Bar */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-stone-700 flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />
-                  Consumed (Intake)
-                </span>
-                <span className="text-stone-900">
-                  {todayCaloriesConsumed !== null ? (
-                    <>
-                      {todayCaloriesConsumed.toLocaleString()} <span className="text-stone-400 font-normal">/ {targetCalories.toLocaleString()} kcal</span>
-                      <span className="ml-1.5 text-xs font-extrabold text-orange-600">
-                        ({Math.round((todayCaloriesConsumed / targetCalories) * 100)}%)
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-stone-400 font-bold">-</span>
-                  )}
-                </span>
-              </div>
-              <div className="relative h-3 w-full bg-stone-200/80 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-linear-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-700" 
-                  style={{ width: `${todayCaloriesConsumed !== null ? Math.min((todayCaloriesConsumed / targetCalories) * 100, 100) : 0}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Burned Bar */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-stone-700 flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
-                  Burned (Active Workout)
-                </span>
-                <span className="text-stone-900">
-                  {todayCaloriesBurned !== null ? (
-                    <>
-                      {todayCaloriesBurned.toLocaleString()} <span className="text-stone-400 font-normal">kcal burned</span>
-                    </>
-                  ) : (
-                    <span className="text-stone-400 font-bold">-</span>
-                  )}
-                </span>
-              </div>
-              <div className="relative h-3 w-full bg-stone-200/80 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-linear-to-r from-teal-400 to-emerald-500 rounded-full transition-all duration-700" 
-                  style={{ width: `${todayCaloriesBurned !== null ? Math.min((todayCaloriesBurned / (targetCalories * 0.4)) * 100, 100) : 0}%` }} 
-                />
-              </div>
-            </div>
-
-            {/* Stacked Proportional Bar (Consumed vs Burned vs Net) */}
-            <div className="pt-2 border-t border-stone-200/70">
-              <div className="flex justify-between items-center text-[11px] font-bold text-stone-500 mb-1.5">
-                <span>Visual Comparison (Intake vs. Burn)</span>
-                <span>
-                  {todayCaloriesConsumed !== null ? `${todayCaloriesConsumed} in` : '- in'} • {todayCaloriesBurned !== null ? `${todayCaloriesBurned} out` : '- out'}
-                </span>
-              </div>
-              <div className="h-3.5 w-full bg-stone-200 rounded-full flex overflow-hidden p-0.5 gap-0.5 shadow-2xs">
-                {(todayCaloriesConsumed || todayCaloriesBurned) ? (
-                  <>
-                    <div 
-                      className="h-full bg-orange-500 rounded-l-full transition-all duration-500" 
-                      style={{ width: `${Math.max(10, Math.min(85, ((todayCaloriesConsumed || 0) / ((todayCaloriesConsumed || 0) + (todayCaloriesBurned || 0) || 1)) * 100))}%` }}
-                      title={`Consumed: ${todayCaloriesConsumed || 0} kcal`}
-                    />
-                    <div 
-                      className="h-full bg-teal-500 rounded-r-full transition-all duration-500" 
-                      style={{ width: `${Math.max(10, Math.min(85, ((todayCaloriesBurned || 0) / ((todayCaloriesConsumed || 0) + (todayCaloriesBurned || 0) || 1)) * 100))}%` }}
-                      title={`Burned: ${todayCaloriesBurned || 0} kcal`}
-                    />
-                  </>
-                ) : (
-                  <div className="h-full w-full bg-stone-100 rounded-full" />
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Metrics Grid */}
-          <div className="grid grid-cols-3 gap-2.5 text-center">
-            <div className="bg-orange-50/70 border border-orange-200/70 rounded-xl p-2.5 flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-orange-700">Intake</span>
-              <span className="text-base font-extrabold text-stone-900 mt-0.5">
-                {todayCaloriesConsumed !== null ? todayCaloriesConsumed.toLocaleString() : "-"}
-              </span>
-              <span className="text-[10px] text-orange-600 font-semibold">
-                {todayCaloriesConsumed !== null ? "kcal consumed" : "no data"}
-              </span>
-            </div>
-            <div className="bg-teal-50/70 border border-teal-200/70 rounded-xl p-2.5 flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Burned</span>
-              <span className="text-base font-extrabold text-stone-900 mt-0.5">
-                {todayCaloriesBurned !== null ? todayCaloriesBurned.toLocaleString() : "-"}
-              </span>
-              <span className="text-[10px] text-teal-600 font-semibold">
-                {todayCaloriesBurned !== null ? "kcal active" : "no data"}
-              </span>
-            </div>
-            <div className="bg-stone-50 border border-stone-200/80 rounded-xl p-2.5 flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Net Calories</span>
-              {todayCaloriesConsumed !== null || todayCaloriesBurned !== null ? (
-                <>
-                  <span className={`text-base font-extrabold mt-0.5 ${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'text-rose-600' : 'text-stone-900'}`}>
-                    {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > 0 
-                      ? `+${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}` 
-                      : ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}
-                  </span>
-                  <span className="text-[10px] text-stone-500 font-semibold">
-                    {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'Over target' : 'Within target'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-base font-extrabold mt-0.5 text-stone-400">-</span>
-                  <span className="text-[10px] text-stone-400 font-semibold">no data</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Row 4: Sleep Recovery Info */}
-        <VitalCard 
-          className="w-full border-stone-200/90 hover:border-canopy-200 transition-colors" 
-          icon={<Moon size={24} className="text-canopy-600" />} 
-          title="Sleep Recovery" 
-          value={todaySleep !== null ? String(todaySleep.hours) : "-"} 
-          unit={todaySleep !== null ? "hrs" : undefined} 
-          subtitle={
-            todaySleep 
-              ? (todaySleep.efficiency ? `Restful sleep • ${todaySleep.efficiency}% recovery score` : 'Restful sleep')
-              : 'No sleep data logged'
-          } 
-        />
       </section>
 
       {/* Unified Activity Timeline Section */}
@@ -973,6 +961,16 @@ const toggleDateCollapse = (dateKey: string) => {
         activity={selectedActivity} 
         onClose={() => setSelectedActivity(null)} 
       />
+
+      {/* Metric Trends Modal */}
+      {selectedTrendMetric && (
+        <TrendModal
+          metric={selectedTrendMetric}
+          logs={allHistoricalLogs.length > 0 ? allHistoricalLogs : healthLogs}
+          userProfile={userProfile}
+          onClose={() => setSelectedTrendMetric(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1342,17 +1340,43 @@ function ActivityDetailModal({
   );
 }
 
-function VitalCard({ icon, title, value, unit, subtitle, className = '' }: { icon: React.ReactNode, title: string, value: string, unit?: string, subtitle: string, className?: string }) {
+function VitalCard({ 
+  icon, 
+  title, 
+  value, 
+  unit, 
+  subtitle, 
+  className = '',
+  onClick
+}: { 
+  icon: React.ReactNode; 
+  title: string; 
+  value: string; 
+  unit?: string; 
+  subtitle: string; 
+  className?: string;
+  onClick?: () => void;
+}) {
   return (
-    <div className={`bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm flex flex-col gap-3 ${className}`}>
-      <div className="flex items-center gap-2 text-stone-500 font-semibold text-lg">
-        {icon} {title}
+    <div 
+      onClick={onClick}
+      className={`bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm flex flex-col gap-3 transition-all ${
+        onClick ? 'cursor-pointer hover:shadow-md hover:border-stone-300 active:scale-[0.98] group' : ''
+      } ${className}`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-stone-500 font-semibold text-lg">
+          {icon} {title}
+        </div>
+        {onClick && (
+          <ChevronRight size={18} className="text-stone-300 group-hover:text-stone-600 transition-colors" />
+        )}
       </div>
       <div className="flex items-baseline gap-1 mt-1">
         <span className="text-4xl font-extrabold text-stone-900 tracking-tight">{value}</span>
         {unit && value !== '-' ? <span className="text-lg text-stone-500 font-bold">{unit}</span> : null}
       </div>
-      <div className="text-stone-500 text-base font-medium">{subtitle}</div>
+      <div className="text-stone-500 text-sm font-medium leading-snug">{subtitle}</div>
     </div>
   );
 }
