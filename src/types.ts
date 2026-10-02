@@ -107,6 +107,9 @@ export interface UserProfile {
   // Custom Bring-Your-Own Gemini API Key
   customGeminiApiKey?: string;
 
+  // Intake onboarding completion flag
+  isIntakeComplete?: boolean;
+
   // External Health & Workout Data Import Settings
   enableExternalDataImport?: boolean;
   lastImportSyncTimestamp?: string;

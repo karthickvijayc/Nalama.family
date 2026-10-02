@@ -28,7 +28,8 @@ import {
   Copy,
   Check,
   ChevronRight,
-  FileText
+  FileText,
+  Quote
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket } from '../types';
@@ -976,6 +977,195 @@ const toggleDateCollapse = (dateKey: string) => {
   );
 }
 
+/**
+ * Enhanced, beautiful preformatted renderer for imported and manual health/workout transcripts
+ */
+function FormattedActivityDetails({ text, category }: { text: string; category: string }) {
+  if (!text || !text.trim()) {
+    return <p className="text-stone-400 italic text-xs">No details recorded.</p>;
+  }
+
+  // Check if text has bullet formatting or special headers
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const hasBullets = lines.some(l => l.startsWith('•') || l.startsWith('-') || l.startsWith('*'));
+  const isWorkoutFormat = text.includes('🏋️') || text.includes('Workout:') || text.includes('Exercises:');
+  const isVitalsFormat = text.includes('🩺') || text.includes('Biometric Vitals') || text.includes('Resting Heart Rate:');
+  const isSleepFormat = text.includes('😴') || text.includes('Sleep Summary:');
+  const isActivityFormat = text.includes('🚶') || text.includes('Daily Activity:');
+
+  // If none of these, render standard clean text block
+  if (!hasBullets && !isWorkoutFormat && !isVitalsFormat && !isSleepFormat && !isActivityFormat) {
+    return (
+      <div className="text-stone-850 text-sm font-medium leading-relaxed whitespace-pre-wrap">
+        {text}
+      </div>
+    );
+  }
+
+  // Parsed sections
+  let headerText = '';
+  const statChips: { label: string; value: string }[] = [];
+  const exerciseList: { name: string; muscle?: string; equipment?: string; setsDetails?: string }[] = [];
+  let notesText = '';
+  const bulletItems: { label?: string; value: string }[] = [];
+
+  lines.forEach(line => {
+    // 1. Header line (e.g. "🏋️ Workout: Core", "🩺 Biometric Vitals Sync:")
+    if (line.startsWith('🏋️') || line.startsWith('🩺') || line.startsWith('😴') || line.startsWith('🚶')) {
+      headerText = line;
+      return;
+    }
+
+    const cleanLine = line.replace(/^[•\-\*]\s*/, '').trim();
+
+    // 2. Workout Exercises line
+    if (cleanLine.startsWith('Exercises:')) {
+      const exContent = cleanLine.replace(/^Exercises:\s*/, '').trim();
+      // Tokenizer regex matching: "Exercise Name [Muscle / Equipment] (sets details)"
+      const regex = /([^,\[\(]+?)(?:\s*\[([^\]]+)\])?(?:\s*\(([^\)]+)\))?(?:,\s*|$)/g;
+      let match;
+      while ((match = regex.exec(exContent)) !== null) {
+        const name = match[1]?.trim();
+        if (!name) continue;
+        const meta = match[2]?.trim();
+        const setsDetails = match[3]?.trim();
+        let muscle: string | undefined;
+        let equipment: string | undefined;
+        if (meta) {
+          const parts = meta.split('/').map(p => p.trim());
+          muscle = parts[0] && parts[0] !== 'None' ? parts[0] : undefined;
+          equipment = parts[1] && parts[1] !== 'None' ? parts[1] : undefined;
+        }
+        exerciseList.push({ name, muscle, equipment, setsDetails });
+      }
+      return;
+    }
+
+    // 3. Notes line
+    if (cleanLine.startsWith('Notes:')) {
+      notesText = cleanLine.replace(/^Notes:\s*["']?/, '').replace(/["']?$/, '').trim();
+      return;
+    }
+
+    // 4. Combined stat lines like: "Duration: 54 mins | Total Volume: 1,638 kg | Sets: 11"
+    if (cleanLine.includes('|')) {
+      const parts = cleanLine.split('|').map(p => p.trim());
+      parts.forEach(part => {
+        const kv = part.split(/:\s*/);
+        if (kv.length === 2) {
+          statChips.push({ label: kv[0].trim(), value: kv[1].trim() });
+        } else {
+          statChips.push({ label: '', value: part });
+        }
+      });
+      return;
+    }
+
+    // 5. Single key-value lines like: "Calories Burned: 449 kcal", "Resting Heart Rate: 79 bpm (Range: ...)"
+    const kvMatch = cleanLine.match(/^([^:]+):\s*(.+)$/);
+    if (kvMatch) {
+      bulletItems.push({ label: kvMatch[1].trim(), value: kvMatch[2].trim() });
+    } else {
+      bulletItems.push({ value: cleanLine });
+    }
+  });
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {/* Header if present */}
+      {headerText && (
+        <div className="text-xs font-extrabold text-stone-700 pb-1.5 border-b border-stone-200/60 flex items-center gap-1.5">
+          <span>{headerText}</span>
+        </div>
+      )}
+
+      {/* Top Stat Pills / Chips */}
+      {statChips.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {statChips.map((chip, idx) => (
+            <div key={idx} className="bg-white border border-stone-200/90 p-2.5 rounded-xl flex flex-col shadow-2xs">
+              {chip.label && (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                  {chip.label}
+                </span>
+              )}
+              <span className="text-xs font-black text-stone-900 mt-0.5">
+                {chip.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Structured Key-Value items (e.g. Vitals measurements, Calories, Sleep scores) */}
+      {bulletItems.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {bulletItems.map((item, idx) => (
+            <div key={idx} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-white border border-stone-200/90 shadow-2xs">
+              {item.label ? (
+                <>
+                  <span className="text-xs font-bold text-stone-600 shrink-0">{item.label}</span>
+                  <span className="text-xs font-extrabold text-stone-900 text-right">{item.value}</span>
+                </>
+              ) : (
+                <span className="text-xs font-medium text-stone-800">{item.value}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Structured Exercises Section for Workouts */}
+      {exerciseList.length > 0 && (
+        <div className="flex flex-col gap-2 pt-1">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+              <Dumbbell size={13} className="text-teal-600" /> Exercises Breakdown ({exerciseList.length})
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {exerciseList.map((ex, idx) => (
+              <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-white border border-stone-200/90 shadow-2xs gap-2">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <span className="font-bold text-stone-900 text-xs sm:text-sm">{ex.name}</span>
+                  {ex.muscle && (
+                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/70">
+                      {ex.muscle}
+                    </span>
+                  )}
+                  {ex.equipment && (
+                    <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
+                      {ex.equipment}
+                    </span>
+                  )}
+                </div>
+                {ex.setsDetails && (
+                  <div className="text-xs font-semibold text-stone-600 self-start sm:self-auto shrink-0">
+                    <span className="px-2.5 py-1 rounded-lg bg-stone-100 font-mono text-[11px] text-stone-700 font-bold border border-stone-200/60">
+                      {ex.setsDetails}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notes Callout Box */}
+      {notesText && (
+        <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-amber-950 mt-1 shadow-2xs">
+          <Quote size={16} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1 text-xs">
+            <span className="font-bold text-amber-800 uppercase tracking-wider text-[10px]">Session Notes</span>
+            <p className="font-medium text-amber-950 leading-relaxed italic">{notesText}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ActivityDetailModal({ 
   activity, 
   onClose 
@@ -1111,8 +1301,11 @@ function ActivityDetailModal({
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
               <FileText size={14} /> Full Record Details
             </h3>
-            <div className="bg-stone-50/90 border border-stone-200/80 rounded-2xl p-4 text-sm font-medium text-stone-800 whitespace-pre-wrap leading-relaxed font-sans">
-              {activity.rawTranscript || activity.subtitle || 'No transcript details available.'}
+            <div className="bg-stone-50/90 border border-stone-200/80 rounded-2xl p-4">
+              <FormattedActivityDetails 
+                text={activity.rawTranscript || activity.subtitle || ''} 
+                category={activity.category}
+              />
             </div>
           </div>
 

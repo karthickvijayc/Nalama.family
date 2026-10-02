@@ -15,6 +15,7 @@ import VoiceRecorderButton from './components/VoiceRecorderButton';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import LoginScreen from './components/LoginScreen';
 import LegalPages from './components/LegalPages';
+import IntakeWizard from './components/IntakeWizard';
 import { initAuth, logout } from './lib/auth';
 import { 
   findOrCreateFolder, 
@@ -71,7 +72,8 @@ export default function App() {
     forceSync: boolean = false
   ) => {
     const prof = profileToUse || userProfile;
-    if (prof?.enableExternalDataImport === false && !forceSync) {
+    // Only proceed if external data import is explicitly enabled by the user
+    if (!prof?.enableExternalDataImport && !forceSync) {
       return;
     }
 
@@ -143,7 +145,9 @@ export default function App() {
             displayName: activeUser.displayName || '',
             email: activeUser.email || '',
             photoURL: activeUser.photoURL || '',
-            primaryLanguage: 'English'
+            primaryLanguage: 'English',
+            isIntakeComplete: false,
+            enableExternalDataImport: false
           };
           activeUserProfile = initialProfile;
           setUserProfile(initialProfile);
@@ -177,8 +181,12 @@ export default function App() {
       setNeedsAuth(false);
       setIsInitializing(false);
 
-      // On Page Load / Initialization: If external import is not explicitly disabled, trigger background sync
-      if (activeUserProfile?.enableExternalDataImport !== false && !initialSyncAttemptedRef.current) {
+      // On Page Load / Initialization: ONLY if external import is explicitly enabled AND intake completed
+      const isComplete = Boolean(
+        activeUserProfile?.isIntakeComplete ||
+        (!('isIntakeComplete' in (activeUserProfile || {})) && (activeUserProfile?.age || activeUserProfile?.healthGoals || activeUserProfile?.nickname))
+      );
+      if (activeUserProfile?.enableExternalDataImport === true && isComplete && !initialSyncAttemptedRef.current) {
         initialSyncAttemptedRef.current = true;
         // Non-blocking background execution
         setTimeout(() => {
@@ -367,7 +375,9 @@ export default function App() {
                 user
               );
               // Update state in React
+              initialSyncAttemptedRef.current = false;
               setUserProfile(result.initialProfile);
+              setActiveTab('home');
 
               // Clear cached local storage
               try {
@@ -402,6 +412,19 @@ export default function App() {
           visible={activeTab === 'home' || activeTab === 'coaching'}
           onLogSaved={() => setLogsRefreshTrigger(prev => prev + 1)}
         />
+
+        {/* New User Profile Setup / Onboarding Modal */}
+        {userProfile && (userProfile.isIntakeComplete === false || (userProfile.isIntakeComplete === undefined && !userProfile.age && !userProfile.nickname && !userProfile.healthGoals && !userProfile.lifestyle)) && driveState && (
+          <IntakeWizard
+            initialProfile={userProfile}
+            onSave={async (updatedProfile) => {
+              setUserProfile(updatedProfile);
+              if (driveState?.contextFileId && driveState?.token) {
+                await saveUserProfileToDrive(driveState.token, driveState.contextFileId, updatedProfile);
+              }
+            }}
+          />
+        )}
       </main>
 
       {/* Bottom Navigation */}

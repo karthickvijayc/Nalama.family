@@ -143,6 +143,19 @@ export default function Settings({
   const [apiKeySaveStatus, setApiKeySaveStatus] = useState<string | null>(null);
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [keyTestResult, setKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [serverAiStatus, setServerAiStatus] = useState<{
+    configured: boolean;
+    provider: 'vertex_ai' | 'ai_studio' | 'none';
+    vertexProject?: string;
+    vertexLocation?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/ai-status')
+      .then(r => r.json())
+      .then(data => setServerAiStatus(data))
+      .catch(() => {});
+  }, []);
 
   // Keep form in sync when userProfile updates
   useEffect(() => {
@@ -1445,6 +1458,14 @@ export default function Settings({
                       {geminiApiKeyInput.trim() ? (
                         <span className="text-teal-600 font-semibold flex items-center gap-1">
                           <CheckCircle2 size={12} /> Custom Key Active
+                        </span>
+                      ) : serverAiStatus?.provider === 'vertex_ai' ? (
+                        <span className="text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 font-semibold flex items-center gap-1 text-[11px]">
+                          <CheckCircle2 size={11} className="text-sky-600" /> Vertex AI Active ({serverAiStatus.vertexProject})
+                        </span>
+                      ) : serverAiStatus?.provider === 'ai_studio' ? (
+                        <span className="text-stone-500 font-semibold flex items-center gap-1 text-[11px]">
+                          Google AI Studio Active
                         </span>
                       ) : (
                         <span className="text-stone-400 font-normal">

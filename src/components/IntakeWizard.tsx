@@ -90,10 +90,8 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
         ...profile,
         userTargets: calculatedTargets,
         updatedAt: new Date().toISOString(),
+        isIntakeComplete: true
       };
-      
-      // Specifically mark intake complete
-      (finalProfile as any).isIntakeComplete = true;
 
       await onSave(finalProfile);
     } catch (err: any) {

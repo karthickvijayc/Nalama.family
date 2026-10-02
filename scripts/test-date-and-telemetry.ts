@@ -100,4 +100,23 @@ for (const log of janLogs) {
   assert(!log.timestamp.startsWith('2026-10-'), `Timestamp does NOT start with 2026-10, got: ${log.timestamp}`);
 }
 
+console.log('\n=== TEST 5: Workout CSV Date vs Start Time Column Resolution ===');
+import { parseImportFileContent } from '../src/lib/importers/parser';
+
+const testWorkoutCsv = `workout_id,date,title,start_time,end_time,duration_minutes,total_volume_kg,total_sets,avg_hr_bpm,max_hr_bpm,calories,exercise_name,target_muscle_group,equipment,set_number,set_type,weight_kg,reps,rpe,notes
+"core-workout-001",2025-10-15,"Core",11:32,12:26,54,1638,11,130,160,449,"Cable Crunch",Abdominals,Machine,1,normal,32.5,14,8,""
+`;
+
+const parsedWk = parseImportFileContent('workouts.csv', testWorkoutCsv);
+assert(parsedWk.workoutSessions?.length === 1, 'Parsed 1 workout session');
+const wkSession = parsedWk.workoutSessions![0];
+assert(wkSession.date === '2025-10-15', `Workout session date is 2025-10-15, got: ${wkSession.date}`);
+assert(wkSession.startTime === '11:32', `Workout start time is 11:32, got: ${wkSession.startTime}`);
+
+const convertedLog = parsedWk.convertedLogs[0];
+const logDate = new Date(convertedLog.timestamp);
+assert(logDate.getFullYear() === 2025, `Workout log year is 2025, got: ${logDate.getFullYear()}`);
+assert(logDate.getMonth() === 9, `Workout log month is October (9), got: ${logDate.getMonth()}`);
+assert(logDate.getDate() === 15, `Workout log day is 15, got: ${logDate.getDate()}`);
+
 console.log('\n🎉 ALL TESTS PASSED SUCCESSFULLY!');

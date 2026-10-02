@@ -718,7 +718,9 @@ export async function resetAllDriveContext(
     displayName: currentUser?.displayName || '',
     email: currentUser?.email || '',
     photoURL: currentUser?.photoURL || '',
-    primaryLanguage: 'English'
+    primaryLanguage: 'English',
+    isIntakeComplete: false,
+    enableExternalDataImport: false
   };
 
   // 1. Reset context_memory.json

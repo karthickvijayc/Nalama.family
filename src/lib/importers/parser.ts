@@ -94,6 +94,26 @@ export function parseCSV(csvText: string): { headers: string[]; rows: Record<str
 }
 
 /**
+ * Determines whether a string or value contains a valid date component (year, month name, or date format)
+ * rather than a pure time string like "07:15" or "11:32:00".
+ */
+export function hasDateComponent(str: any): boolean {
+  if (!str) return false;
+  const s = String(str).trim();
+  // Check if it's an Excel numeric serial date (e.g. 45558)
+  if (typeof str === 'number' || (!isNaN(Number(s)) && Number(s) > 30000 && Number(s) < 70000)) {
+    return true;
+  }
+  // Check 4-digit year (e.g. 2024, 2025, 2026)
+  if (/\b20\d{2}\b/.test(s)) return true;
+  // Check month names (Jan, Feb, Sep, October, etc.)
+  if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(s)) return true;
+  // Check date pattern YYYY-MM-DD or DD/MM/YYYY or MM-DD-YYYY
+  if (/\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/.test(s)) return true;
+  return false;
+}
+
+/**
  * Standardize any date format into canonical "YYYY-MM-DD"
  */
 export function normalizeDateStr(rawDate: any): string {
@@ -677,6 +697,7 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
     const headerStr = headers.join(' ').toLowerCase();
 
     // A. Workout CSV (e.g., Hevy, Strong, FitNotes)
+
     // Headers typically contain: workout_id, title, exercise_name, set_number, weight_kg, reps, or Workout Title, Set #, etc.
     if (
       headerStr.includes('workout') || 
@@ -692,7 +713,20 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
       const sessionMap = new Map<string, CanonicalWorkoutSession>();
 
       rows.forEach((row) => {
-        const rawDateVal = row['start_time'] || row['Start Time'] || row['date'] || row['Date'] || row['Start Date'];
+        // Explicitly prioritize date columns over start_time (which usually only holds HH:mm)
+        const rawDateVal = 
+          (row['date'] && hasDateComponent(row['date']) ? row['date'] : null) ||
+          (row['Date'] && hasDateComponent(row['Date']) ? row['Date'] : null) ||
+          (row['Start Date'] && hasDateComponent(row['Start Date']) ? row['Start Date'] : null) ||
+          (row['start_date'] && hasDateComponent(row['start_date']) ? row['start_date'] : null) ||
+          (row['workout_date'] && hasDateComponent(row['workout_date']) ? row['workout_date'] : null) ||
+          (row['Workout Date'] && hasDateComponent(row['Workout Date']) ? row['Workout Date'] : null) ||
+          (row['Date/Time'] && hasDateComponent(row['Date/Time']) ? row['Date/Time'] : null) ||
+          (row['Timestamp'] && hasDateComponent(row['Timestamp']) ? row['Timestamp'] : null) ||
+          (row['start_time'] && hasDateComponent(row['start_time']) ? row['start_time'] : null) ||
+          (row['Start Time'] && hasDateComponent(row['Start Time']) ? row['Start Time'] : null) ||
+          row['date'] || row['Date'] || row['Start Date'] || row['start_time'] || row['Start Time'];
+
         const date = normalizeDateStr(rawDateVal);
         const title = (row['title'] || row['Workout Title'] || row['Workout Name'] || row['Routine'] || 'Gym Workout').trim();
 
@@ -814,7 +848,13 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
     const dailyMap = new Map<string, CanonicalDailyHealthRecord>();
 
     rows.forEach(row => {
-      const date = normalizeDateStr(row['date'] || row['Date'] || row['Date/Time'] || row['Timestamp'] || row['start_time']);
+      const rawDate = 
+        (row['date'] && hasDateComponent(row['date']) ? row['date'] : null) ||
+        (row['Date'] && hasDateComponent(row['Date']) ? row['Date'] : null) ||
+        (row['Date/Time'] && hasDateComponent(row['Date/Time']) ? row['Date/Time'] : null) ||
+        (row['Timestamp'] && hasDateComponent(row['Timestamp']) ? row['Timestamp'] : null) ||
+        row['date'] || row['Date'] || row['Date/Time'] || row['Timestamp'] || row['start_time'];
+      const date = normalizeDateStr(rawDate);
       if (!dailyMap.has(date)) {
         const rawSources = row['sources'] || row['Source(s)'] || row['source'] || 'HealthConnect';
         const sources = typeof rawSources === 'string' ? rawSources.split(';').map(s => s.trim()).filter(Boolean) : ['HealthConnect'];

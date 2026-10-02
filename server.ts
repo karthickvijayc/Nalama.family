@@ -21,6 +21,12 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
+  const isTruthy = (val?: string): boolean => {
+    if (!val) return false;
+    const s = String(val).trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  };
+
   // Helper to initialize Gemini client safely with optional BYOK (Bring Your Own Key) or Gemini Enterprise Agent Platform / Vertex AI (GCP)
   const getAiClient = (userApiKey?: string) => {
     const customKey = userApiKey && userApiKey.trim();
@@ -31,18 +37,56 @@ async function startServer() {
       });
     }
 
-    const useEnterprise =
-      process.env.GOOGLE_GENAI_USE_ENTERPRISE === "true" ||
-      process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
-      process.env.VERTEX_AI === "true";
-    const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID;
-    const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "us-central1";
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.VERTEX_API_KEY;
+    const enterpriseFlag =
+      isTruthy(process.env.GOOGLE_GENAI_USE_ENTERPRISE) ||
+      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEXAI) ||
+      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEX_AI) ||
+      isTruthy(process.env.VERTEX_AI) ||
+      isTruthy(process.env.VERTEXAI);
 
-    // 2. Gemini Enterprise Agent Platform (formerly Vertex AI) mode
+    const project =
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.GCP_PROJECT_ID ||
+      process.env.GCLOUD_PROJECT ||
+      process.env.PROJECT_ID ||
+      process.env.GCP_PROJECT;
+
+    const location =
+      process.env.GOOGLE_CLOUD_LOCATION ||
+      process.env.GCP_REGION ||
+      process.env.CLOUD_ML_REGION ||
+      "us-central1";
+
+    const apiKey =
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.VERTEX_API_KEY;
+
+    // Detect if running in Google Cloud or explicitly configured with GCP credentials
+    const hasGcpEnv = Boolean(
+      project ||
+      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+      process.env.K_SERVICE || // Cloud Run
+      process.env.FUNCTION_TARGET // Cloud Functions
+    );
+
+    // If explicit enterprise flag is set, OR if GCP project/env is present and no standard AI Studio key is provided
+    const useEnterprise = enterpriseFlag || (!apiKey && hasGcpEnv);
+
+    // 2. Gemini Enterprise Agent Platform / Vertex AI (GCP) mode
     if (useEnterprise) {
+      process.env.GOOGLE_GENAI_USE_ENTERPRISE = "true";
+      process.env.GOOGLE_GENAI_USE_VERTEXAI = "true";
+      if (project && !process.env.GOOGLE_CLOUD_PROJECT) {
+        process.env.GOOGLE_CLOUD_PROJECT = project;
+      }
+      if (location && !process.env.GOOGLE_CLOUD_LOCATION) {
+        process.env.GOOGLE_CLOUD_LOCATION = location;
+      }
+
       return new GoogleGenAI({
         enterprise: true,
+        vertexai: true,
         ...(project ? { project } : {}),
         ...(location ? { location } : {}),
         ...(apiKey ? { apiKey: apiKey.trim() } : {}),
@@ -82,6 +126,29 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // AI Status endpoint to verify whether Vertex AI or Google AI Studio is active
+  app.get("/api/ai-status", (req, res) => {
+    const isEnterprise =
+      isTruthy(process.env.GOOGLE_GENAI_USE_ENTERPRISE) ||
+      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEXAI) ||
+      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEX_AI) ||
+      isTruthy(process.env.VERTEX_AI) ||
+      isTruthy(process.env.VERTEXAI) ||
+      (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && Boolean(process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS));
+
+    const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GCP_PROJECT;
+    const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "us-central1";
+    const hasServerApiKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.VERTEX_API_KEY);
+
+    res.json({
+      configured: isEnterprise || hasServerApiKey,
+      provider: isEnterprise ? "vertex_ai" : hasServerApiKey ? "ai_studio" : "none",
+      vertexProject: isEnterprise ? (project || "adc-default") : undefined,
+      vertexLocation: isEnterprise ? location : undefined,
+      hasServerKey: hasServerApiKey
+    });
+  });
+
   // Helper to call Gemini models with resilient fallback and custom key support
   const callGeminiWithFallback = async (options: {
     contents: any;
@@ -92,13 +159,20 @@ async function startServer() {
     const ai = getAiClient(options.userApiKey);
     const isCustomKey = Boolean(options.userApiKey && options.userApiKey.trim());
 
-    // Prioritize fastest & most cost-effective models with multi-tier fallback
-    const models = [
+    // Prioritize configured model, then fastest & most cost-effective models with multi-tier fallback
+    const configuredModel = process.env.GEMINI_MODEL || process.env.VERTEX_MODEL;
+    const defaultModels = [
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
       "gemini-3.8-flash",
-      "gemini-3.1-flash-lite",
       "gemini-flash-latest",
-      "gemini-3.1-pro-preview"
+      "gemini-1.5-pro"
     ];
+    const models = Array.from(new Set([
+      ...(configuredModel ? [configuredModel.trim()] : []),
+      ...defaultModels
+    ]));
     let lastError: any = null;
 
     for (const model of models) {
