@@ -12,6 +12,7 @@ import SettingsView from './components/Settings';
 import DeveloperGuide from './components/DeveloperGuide';
 import SyncFloatingBanner from './components/SyncFloatingBanner';
 import VoiceRecorderButton from './components/VoiceRecorderButton';
+import HealthDocUploader from './components/HealthDocUploader';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import LoginScreen from './components/LoginScreen';
 import LegalPages from './components/LegalPages';
@@ -412,12 +413,26 @@ export default function App() {
           </div>
         )}
         
-        {/* Floating Voice Button (Only visible on Home and Coaching tabs; hidden during intake) */}
-        <VoiceRecorderButton 
-          driveState={driveState}
-          visible={!isIntakeNeeded && (activeTab === 'home' || activeTab === 'coaching')}
-          onLogSaved={() => setLogsRefreshTrigger(prev => prev + 1)}
-        />
+        {/* Floating Action Buttons (Left: Upload File, Right: Add Voice Entry) */}
+        {!isIntakeNeeded && (activeTab === 'home' || activeTab === 'coaching') && (
+          <div className="fixed bottom-20 left-0 right-0 max-w-md mx-auto px-4 flex items-center justify-between pointer-events-none z-30">
+            <div className="pointer-events-auto">
+              <HealthDocUploader 
+                driveState={driveState}
+                floating={true}
+                userProfile={userProfile}
+                onLogSaved={() => setLogsRefreshTrigger(prev => prev + 1)}
+              />
+            </div>
+            <div className="pointer-events-auto">
+              <VoiceRecorderButton 
+                driveState={driveState}
+                visible={true}
+                onLogSaved={() => setLogsRefreshTrigger(prev => prev + 1)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* New User Profile Setup / Onboarding Modal */}
         {isIntakeNeeded && (

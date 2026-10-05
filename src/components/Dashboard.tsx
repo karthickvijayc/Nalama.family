@@ -198,6 +198,12 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('Today & Past 30 Days');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
   const [selectedActivity, setSelectedActivity] = useState<ActivityEntry | null>(null);
+  const [visibleDaysCount, setVisibleDaysCount] = useState<number>(3);
+
+  // Keep scroll focused on Today at top upon initial load
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, []);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -332,7 +338,8 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         const todayInfo = getDateInfo(new Date());
         let consumed: number | null = null;
         let burned: number | null = null;
-        let activeMins: number | null = null;
+        let healthConnectActiveMins: number | null = null;
+        let workoutActiveMins: number | null = null;
         let steps: number | null = null;
         let heartRate: number | null = null;
         let sleep: { hours: number; efficiency?: number } | null = null;
@@ -369,13 +376,26 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
                 }
               }
 
+              // Active minutes: separate Health Connect whole-day activity from individual gym workouts
+              const isHealthConnectActivity = log.id?.startsWith('import-activity-') || 
+                log.headline === 'Daily Step Activity' || 
+                log.transcript?.includes('Daily Activity:');
+
+              let logActiveMins = 0;
               if (typeof log.activeMinutes === 'number' && log.activeMinutes > 0) {
-                activeMins = (activeMins || 0) + log.activeMinutes;
+                logActiveMins = log.activeMinutes;
               } else {
                 const minMatch = log.transcript?.match(/(\d+)\s*(?:mins|minutes)/i);
                 if (minMatch) {
-                  activeMins = (activeMins || 0) + parseInt(minMatch[1], 10);
+                  logActiveMins = parseInt(minMatch[1], 10);
                 }
+              }
+
+              if (isHealthConnectActivity) {
+                // Health Connect already tracks full day's active duration including gym time
+                healthConnectActiveMins = Math.max(healthConnectActiveMins || 0, logActiveMins);
+              } else if (logActiveMins > 0) {
+                workoutActiveMins = (workoutActiveMins || 0) + logActiveMins;
               }
             }
 
@@ -472,9 +492,13 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
           }
         }
 
+        // Only include Health Connect activity time if available (which already includes gym workouts);
+        // fallback to standalone workout active minutes only if Health Connect has not synced today.
+        const effectiveActiveMins = healthConnectActiveMins !== null ? healthConnectActiveMins : workoutActiveMins;
+
         setTodayCaloriesConsumed(consumed);
         setTodayCaloriesBurned(burned);
-        setTodayActiveMinutes(activeMins);
+        setTodayActiveMinutes(effectiveActiveMins);
         setTodaySteps(steps);
         setTodayHeartRate(heartRate);
         setTodaySleep(sleep);
@@ -620,11 +644,14 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
     });
   }, [combinedActivities]);
 
-const toggleDateCollapse = (dateKey: string) => {
-    setCollapsedDates((prev) => ({
-      ...prev,
-      [dateKey]: !prev[dateKey],
-    }));
+  const toggleDateCollapse = (dateKey: string, defaultCollapsed: boolean = false) => {
+    setCollapsedDates((prev) => {
+      const current = prev[dateKey] !== undefined ? prev[dateKey] : defaultCollapsed;
+      return {
+        ...prev,
+        [dateKey]: !current,
+      };
+    });
   };
 
   const effectiveName = getUserDisplayName(userProfile, user);
@@ -879,8 +906,13 @@ const toggleDateCollapse = (dateKey: string) => {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {dateGroups.map((dateGroup) => {
-              const isCollapsed = !!collapsedDates[dateGroup.dateKey];
+            {dateGroups.slice(0, visibleDaysCount).map((dateGroup, dateIdx) => {
+              // Keep Today and prev 2 days (indices 0, 1, 2) expanded by default;
+              // everything else is collapsed unless explicitly toggled by user.
+              const defaultCollapsed = dateIdx >= 3;
+              const isCollapsed = collapsedDates[dateGroup.dateKey] !== undefined 
+                ? !!collapsedDates[dateGroup.dateKey] 
+                : defaultCollapsed;
               return (
                 <div 
                   key={dateGroup.dateKey} 
@@ -889,8 +921,8 @@ const toggleDateCollapse = (dateKey: string) => {
                   {/* Date Collapsible Separator */}
                   <button
                     type="button"
-                    onClick={() => toggleDateCollapse(dateGroup.dateKey)}
-                    className="w-full flex items-center justify-between px-5 py-4 bg-stone-50/90 hover:bg-stone-100/90 transition-colors border-b border-stone-200/80 text-left"
+                    onClick={() => toggleDateCollapse(dateGroup.dateKey, defaultCollapsed)}
+                    className="w-full flex items-center justify-between px-5 py-4 bg-stone-50/90 hover:bg-stone-100/90 transition-colors border-b border-stone-200/80 text-left cursor-pointer"
                     aria-expanded={!isCollapsed}
                   >
                     <div className="flex items-center gap-3">
@@ -952,6 +984,23 @@ const toggleDateCollapse = (dateKey: string) => {
                 </div>
               );
             })}
+
+            {/* Show More Pagination Button (Shows 10 more at a time up to 30) */}
+            {visibleDaysCount < dateGroups.length && (
+              <div className="flex flex-col items-center justify-center pt-2 pb-6">
+                <button
+                  type="button"
+                  onClick={() => setVisibleDaysCount(prev => Math.min(30, prev + 10))}
+                  className="w-full py-3.5 px-4 bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200 text-stone-700 font-bold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <ChevronDown size={16} className="text-stone-500" />
+                  <span>Show earlier activity (+{Math.min(10, dateGroups.length - visibleDaysCount)} more days)</span>
+                </button>
+                <span className="text-[11px] text-stone-400 font-medium mt-1.5">
+                  Showing {Math.min(visibleDaysCount, dateGroups.length)} of {dateGroups.length} days
+                </span>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -1019,14 +1068,50 @@ function FormattedActivityDetails({ text, category }: { text: string; category: 
     // 2. Workout Exercises line
     if (cleanLine.startsWith('Exercises:')) {
       const exContent = cleanLine.replace(/^Exercises:\s*/, '').trim();
-      // Tokenizer regex matching: "Exercise Name [Muscle / Equipment] (sets details)"
-      const regex = /([^,\[\(]+?)(?:\s*\[([^\]]+)\])?(?:\s*\(([^\)]+)\))?(?:,\s*|$)/g;
-      let match;
-      while ((match = regex.exec(exContent)) !== null) {
-        const name = match[1]?.trim();
-        if (!name) continue;
-        const meta = match[2]?.trim();
-        const setsDetails = match[3]?.trim();
+
+      // Depth-aware tokenizer: split entries on commas that are outside parentheses and brackets
+      const rawParts: string[] = [];
+      let current = '';
+      let parenDepth = 0;
+      let bracketDepth = 0;
+
+      for (let i = 0; i < exContent.length; i++) {
+        const char = exContent[i];
+        if (char === '(') parenDepth++;
+        else if (char === ')') parenDepth = Math.max(0, parenDepth - 1);
+        else if (char === '[') bracketDepth++;
+        else if (char === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+
+        if (char === ',' && parenDepth === 0 && bracketDepth === 0) {
+          if (current.trim()) rawParts.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      if (current.trim()) rawParts.push(current.trim());
+
+      rawParts.forEach(part => {
+        let itemStr = part.trim();
+        if (!itemStr) return;
+
+        let setsDetails: string | undefined;
+        let meta: string | undefined;
+
+        // 1. Extract sets in parentheses at end: e.g. "(2 sets @ 80kg, 12 reps)" or "(1 sets)"
+        const setsMatch = itemStr.match(/\s*\(([^)]+)\)$/);
+        if (setsMatch) {
+          setsDetails = setsMatch[1].trim();
+          itemStr = itemStr.slice(0, setsMatch.index).trim();
+        }
+
+        // 2. Extract metadata in brackets at end: e.g. "[Glutes / Barbell]" or "[Cardio / Machine]"
+        const metaMatch = itemStr.match(/\s*\[([^\]]+)\]$/);
+        if (metaMatch) {
+          meta = metaMatch[1].trim();
+          itemStr = itemStr.slice(0, metaMatch.index).trim();
+        }
+
         let muscle: string | undefined;
         let equipment: string | undefined;
         if (meta) {
@@ -1034,8 +1119,12 @@ function FormattedActivityDetails({ text, category }: { text: string; category: 
           muscle = parts[0] && parts[0] !== 'None' ? parts[0] : undefined;
           equipment = parts[1] && parts[1] !== 'None' ? parts[1] : undefined;
         }
-        exerciseList.push({ name, muscle, equipment, setsDetails });
-      }
+
+        const name = itemStr.trim();
+        if (name) {
+          exerciseList.push({ name, muscle, equipment, setsDetails });
+        }
+      });
       return;
     }
 
@@ -1122,30 +1211,44 @@ function FormattedActivityDetails({ text, category }: { text: string; category: 
             </span>
           </div>
           <div className="flex flex-col gap-2">
-            {exerciseList.map((ex, idx) => (
-              <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-white border border-stone-200/90 shadow-2xs gap-2">
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                  <span className="font-bold text-stone-900 text-xs sm:text-sm">{ex.name}</span>
-                  {ex.muscle && (
-                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/70">
-                      {ex.muscle}
-                    </span>
-                  )}
-                  {ex.equipment && (
-                    <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
-                      {ex.equipment}
-                    </span>
+            {exerciseList.map((ex, idx) => {
+              // Enhance setsDetails for cardio exercises (e.g. Treadmill, Cardio, Running)
+              // If setsDetails is just "1 sets" and notesText has details like "Incline L 10" or duration
+              let displayDetails = ex.setsDetails;
+              const isCardioOrTimed = ex.muscle === 'Cardio' || 
+                /treadmill|cardio|running|cycling|stretching|rowing|elliptical/i.test(ex.name);
+
+              if (isCardioOrTimed && (displayDetails === '1 sets' || displayDetails === '1 set')) {
+                if (notesText && !notesText.toLowerCase().includes('great energy')) {
+                  displayDetails = `1 set • ${notesText}`;
+                }
+              }
+
+              return (
+                <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-white border border-stone-200/90 shadow-2xs gap-2">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="font-bold text-stone-900 text-xs sm:text-sm">{ex.name}</span>
+                    {ex.muscle && (
+                      <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/70">
+                        {ex.muscle}
+                      </span>
+                    )}
+                    {ex.equipment && (
+                      <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-md">
+                        {ex.equipment}
+                      </span>
+                    )}
+                  </div>
+                  {displayDetails && (
+                    <div className="text-xs font-semibold text-stone-600 self-start sm:self-auto shrink-0">
+                      <span className="px-2.5 py-1 rounded-lg bg-stone-100 font-mono text-[11px] text-stone-700 font-bold border border-stone-200/60">
+                        {displayDetails}
+                      </span>
+                    </div>
                   )}
                 </div>
-                {ex.setsDetails && (
-                  <div className="text-xs font-semibold text-stone-600 self-start sm:self-auto shrink-0">
-                    <span className="px-2.5 py-1 rounded-lg bg-stone-100 font-mono text-[11px] text-stone-700 font-bold border border-stone-200/60">
-                      {ex.setsDetails}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

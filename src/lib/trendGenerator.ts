@@ -125,6 +125,8 @@ export function generateTrendMetrics(
   const dailyRealData = new Map<string, {
     steps?: number;
     activeMins?: number;
+    hcActiveMins?: number;
+    workoutActiveMins?: number;
     heartRate?: number;
     weight?: number;
     caloriesBurned?: number;
@@ -162,19 +164,30 @@ export function generateTrendMetrics(
       }
     }
 
-    // Active minutes
+    // Active minutes (Health Connect activity vs gym workout deduplication)
+    const isHealthConnectActivity = log.id?.startsWith('import-activity-') || 
+      log.headline === 'Daily Step Activity' || 
+      log.transcript?.includes('Daily Activity:');
+
+    let logMins = 0;
     if (typeof log.activeMinutes === 'number' && log.activeMinutes > 0) {
-      dayEntry.activeMins = (dayEntry.activeMins || 0) + log.activeMinutes;
-      if (metric === 'active_time') hasRealLogsForMetric = true;
+      logMins = log.activeMinutes;
     } else if (log.category === 'workout' && log.transcript) {
       const minMatch = log.transcript.match(/(\d+)\s*(?:mins|minutes)/i);
       if (minMatch) {
         const val = parseInt(minMatch[1], 10);
-        if (!isNaN(val) && val > 0) {
-          dayEntry.activeMins = (dayEntry.activeMins || 0) + val;
-          if (metric === 'active_time') hasRealLogsForMetric = true;
-        }
+        if (!isNaN(val) && val > 0) logMins = val;
       }
+    }
+
+    if (logMins > 0) {
+      if (isHealthConnectActivity) {
+        dayEntry.hcActiveMins = Math.max(dayEntry.hcActiveMins || 0, logMins);
+      } else {
+        dayEntry.workoutActiveMins = (dayEntry.workoutActiveMins || 0) + logMins;
+      }
+      dayEntry.activeMins = dayEntry.hcActiveMins !== undefined ? dayEntry.hcActiveMins : dayEntry.workoutActiveMins;
+      if (metric === 'active_time') hasRealLogsForMetric = true;
     }
 
     // Heart rate

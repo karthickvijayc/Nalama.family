@@ -366,12 +366,51 @@ export function convertWorkoutSessionToLogEntry(session: CanonicalWorkoutSession
     const setCount = ex.sets?.length || 0;
     const maxWeight = Math.max(...(ex.sets || []).map(s => s.weightKg || 0), 0);
     const topReps = ex.sets?.[0]?.reps || 0;
-    const weightStr = maxWeight > 0 ? ` @ ${maxWeight}kg` : '';
+    
+    // Check for duration seconds or distance meters across sets
+    const totalDurationSecs = (ex.sets || []).reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+    const maxDurationSecs = Math.max(...(ex.sets || []).map(s => s.durationSeconds || 0), 0);
+    const totalDistanceMeters = (ex.sets || []).reduce((sum, s) => sum + (s.distanceMeters || 0), 0);
+
+    const parts: string[] = [`${setCount} sets`];
+
+    if (maxWeight > 0) {
+      let weightStr = `@ ${maxWeight}kg`;
+      if (topReps > 0) weightStr += `, ${topReps} reps`;
+      parts.push(weightStr);
+    } else if (topReps > 0) {
+      parts.push(`@ ${topReps} reps`);
+    }
+
+    // For cardio or timed exercises (like Treadmill, Running, Stretching):
+    if (maxWeight === 0 && (totalDurationSecs > 0 || maxDurationSecs > 0)) {
+      const durSecs = totalDurationSecs > 0 ? totalDurationSecs : maxDurationSecs;
+      const mins = Math.round(durSecs / 60);
+      const timeStr = mins >= 60 
+        ? `${(mins / 60).toFixed(1)} hrs` 
+        : `${mins > 0 ? mins : durSecs} ${mins > 0 ? 'mins' : 's'}`;
+      parts.push(`@ ${timeStr}`);
+    }
+
+    if (totalDistanceMeters > 0) {
+      const km = (totalDistanceMeters / 1000).toFixed(2).replace(/\.00$/, '');
+      parts.push(`${km} km`);
+    }
+
+    // Also check if ex.notes mentions duration or incline/speed (e.g. "20 mins", "Incline L 10")
+    if (ex.notes && maxWeight === 0 && !totalDurationSecs && !totalDistanceMeters) {
+      const timeInNotes = ex.notes.match(/(\d+)\s*(?:mins?|minutes?|secs?|seconds?)/i);
+      if (timeInNotes) {
+        parts.push(`@ ${timeInNotes[0]}`);
+      }
+    }
+
     const metaParts: string[] = [];
     if (ex.targetMuscleGroup) metaParts.push(ex.targetMuscleGroup);
     if (ex.equipment) metaParts.push(ex.equipment);
     const metaStr = metaParts.length > 0 ? ` [${metaParts.join(' / ')}]` : '';
-    return `${ex.exerciseName}${metaStr} (${setCount} sets${weightStr}${topReps ? `, ${topReps} reps` : ''})`;
+
+    return `${ex.exerciseName}${metaStr} (${parts.join(' ')})`;
   });
 
   const detailLines: string[] = [];
@@ -809,6 +848,29 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             ? (setTypeRaw === 'dropset' ? 'drop' : setTypeRaw) 
             : 'normal';
 
+          let durSecs = parseFloat(row['duration_seconds'] || row['Duration (s)'] || row['Duration (sec)'] || row['Duration (seconds)'] || '0') || 0;
+          if (durSecs === 0 && (row['duration_minutes'] || row['Duration (min)'])) {
+            const m = parseFloat(row['duration_minutes'] || row['Duration (min)'] || '0');
+            if (!isNaN(m) && m > 0) durSecs = Math.round(m * 60);
+          }
+          if (durSecs === 0 && row['duration']) {
+            const dVal = String(row['duration']).trim();
+            const parts = dVal.split(':');
+            if (parts.length === 3) {
+              durSecs = (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
+            } else if (parts.length === 2) {
+              durSecs = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+            } else if (!isNaN(Number(dVal))) {
+              durSecs = Number(dVal);
+            }
+          }
+
+          let distM = parseFloat(row['distance_meters'] || row['Distance (m)'] || row['Distance (meters)'] || '0') || 0;
+          if (distM === 0 && (row['distance_km'] || row['Distance (km)'])) {
+            const km = parseFloat(row['distance_km'] || row['Distance (km)'] || '0');
+            if (!isNaN(km) && km > 0) distM = Math.round(km * 1000);
+          }
+
           exGroup.sets.push({
             setNumber,
             setType,
@@ -816,8 +878,8 @@ export function parseImportFileContent(filename: string, rawContent: string): Pa
             reps,
             rpe,
             setVolumeKg: weightKg * reps,
-            durationSeconds: parseFloat(row['duration_seconds'] || row['Duration (s)'] || '0') || undefined,
-            distanceMeters: parseFloat(row['distance_meters'] || row['Distance (m)'] || '0') || undefined
+            durationSeconds: durSecs > 0 ? durSecs : undefined,
+            distanceMeters: distM > 0 ? distM : undefined
           });
         }
       });
