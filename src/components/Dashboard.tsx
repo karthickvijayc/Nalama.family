@@ -1637,7 +1637,7 @@ function ActivityRow({
             </p>
           )}
 
-          {/* Event timestamp at the bottom like audit (12Hours format) */}
+          {/* Event timestamp at the bottom (12-hour format) */}
           <div className="flex items-center gap-2 mt-1">
             <span className="text-stone-400 text-[11px] font-bold uppercase tracking-wider">
               {activity.time}

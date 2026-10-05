@@ -33,9 +33,8 @@ import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { useWakeLock } from './lib/wakeLock';
 import { useAndroidBackNavigation } from './lib/backNavigation';
 import { User } from 'firebase/auth';
-import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch, User as UserIcon } from 'lucide-react';
+import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, User as UserIcon } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
-import DriveAuditTab from './components/DriveAuditTab';
 
 export type { DriveState };
 
@@ -534,13 +533,7 @@ export default function App() {
         {activeTab === 'developer_guide' && (
           <DeveloperGuide onBack={() => setActiveTab('settings')} />
         )}
-        {activeTab === 'audit' && (
-          <DriveAuditTab 
-            driveState={driveState} 
-            onRefreshLogs={() => setLogsRefreshTrigger(prev => prev + 1)} 
-          />
-        )}
-        {activeTab !== 'home' && activeTab !== 'coaching' && activeTab !== 'profile' && activeTab !== 'family' && activeTab !== 'settings' && activeTab !== 'developer_guide' && activeTab !== 'audit' && (
+        {activeTab !== 'home' && activeTab !== 'coaching' && activeTab !== 'profile' && activeTab !== 'family' && activeTab !== 'settings' && activeTab !== 'developer_guide' && (
           <div className="flex h-full items-center justify-center text-stone-500 font-medium">
             Coming soon...
           </div>
@@ -596,12 +589,6 @@ export default function App() {
               label="Coaching" 
               active={activeTab === 'coaching'}
               onClick={() => setActiveTab('coaching')}
-            />
-            <NavItem 
-              icon={<ScanSearch size={26} strokeWidth={activeTab === 'audit' ? 2.5 : 2} />} 
-              label="Audit" 
-              active={activeTab === 'audit'}
-              onClick={() => setActiveTab('audit')}
             />
             <NavItem 
               icon={<Users size={26} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 

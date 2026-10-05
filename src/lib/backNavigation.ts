@@ -49,7 +49,7 @@ interface UseAndroidBackNavigationOptions {
  * Main Android back button and screen swipe gesture manager.
  * - If any modal or overlay is open, closes it first.
  * - If on a sub-view (e.g. Developer Guide or Profile), returns to parent view.
- * - If on any non-home tab (Coaching, Family, Settings, Audit), redirects to 'home'.
+ * - If on any non-home tab (Coaching, Family, Settings), redirects to 'home'.
  * - If on 'home' tab:
  *    - 1st attempt: Shows a sleek "Press back again to exit" toast prompt.
  *    - 2nd attempt within 2 seconds: Safely allows the app to exit.
@@ -135,7 +135,7 @@ export function useAndroidBackNavigation({
         return;
       }
 
-      // 4. Any non-home tab (coaching, family, settings, audit) -> redirect to 'home' on 1st attempt
+      // 4. Any non-home tab (coaching, family, settings) -> redirect to 'home' on 1st attempt
       if (currentTab !== 'home') {
         setActiveTabRef.current('home');
         replenishBuffer();
