@@ -4,25 +4,12 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   onAuthStateChanged, 
-  User,
-  browserLocalPersistence,
-  setPersistence
+  User
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-
-// Configure persistent local storage on client devices (desktop & mobile PWA)
-if (typeof window !== 'undefined') {
-  setPersistence(auth, browserLocalPersistence).catch((err) => {
-    console.warn('Could not set browserLocalPersistence:', err);
-  });
-}
-
-const provider = new GoogleAuthProvider();
-// Required for app to create and manage the /nalama.family folder
-provider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // Local storage key for persistent client device token cache
 const STORAGE_KEY_TOKEN = 'nalama_drive_access_token';
@@ -32,26 +19,14 @@ const STORAGE_KEY_TOKEN_EXPIRY = 'nalama_drive_token_expiry';
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
 
-// Helper to retrieve saved token if valid
+// Helper to retrieve saved token without premature purging
 export const getStoredAccessToken = (): string | null => {
   if (cachedAccessToken) return cachedAccessToken;
   
   if (typeof window !== 'undefined') {
     try {
       const savedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
-      const savedExpiry = localStorage.getItem(STORAGE_KEY_TOKEN_EXPIRY);
-      
       if (savedToken) {
-        // If expiry is stored, ensure it has not passed (with 2 min buffer)
-        if (savedExpiry) {
-          const expiryTime = Number(savedExpiry);
-          if (Date.now() > expiryTime - 2 * 60 * 1000) {
-            // Token expired
-            localStorage.removeItem(STORAGE_KEY_TOKEN);
-            localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
-            return null;
-          }
-        }
         cachedAccessToken = savedToken;
         return savedToken;
       }
@@ -62,13 +37,25 @@ export const getStoredAccessToken = (): string | null => {
   return null;
 };
 
+// Helper to clear token only when explicitly needed (e.g. 401 Unauthorized or Logout)
+export const clearStoredAccessToken = (): void => {
+  cachedAccessToken = null;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(STORAGE_KEY_TOKEN);
+      localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
+    } catch (e) {
+      // ignore
+    }
+  }
+};
+
 // Helper to save token to local storage
 const storeAccessToken = (token: string, expiresInSecs = 3600) => {
   cachedAccessToken = token;
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
-      // OAuth tokens usually last 3600 seconds (1 hour). Store timestamp
       const expiry = Date.now() + expiresInSecs * 1000;
       localStorage.setItem(STORAGE_KEY_TOKEN_EXPIRY, String(expiry));
     } catch (e) {
@@ -77,10 +64,14 @@ const storeAccessToken = (token: string, expiresInSecs = 3600) => {
   }
 };
 
-// Initialize auth state listener. Call this on app load.
+// Initialize auth state listener.
+// - onAuthSuccess: User is signed in and has a cached Google Drive token
+// - onAuthFailure: No user session found
+// - onNeedsDriveToken: User is recognized from Firebase, but needs to refresh Google Drive token
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
+  onAuthFailure?: () => void,
+  onNeedsDriveToken?: (user: User) => void
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
@@ -88,24 +79,36 @@ export const initAuth = (
       if (token) {
         if (onAuthSuccess) onAuthSuccess(user, token);
       } else if (!isSigningIn) {
-        // User is authenticated in Firebase but access token is missing or expired
-        if (onAuthFailure) onAuthFailure();
+        // User session exists in Firebase, but Drive token needs renewal
+        if (onNeedsDriveToken) {
+          onNeedsDriveToken(user);
+        } else if (onAuthFailure) {
+          onAuthFailure();
+        }
       }
     } else {
       cachedAccessToken = null;
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEY_TOKEN);
-        localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
-      }
+      // Note: Never wipe localStorage here! 
+      // Only logout() should explicitly purge credentials.
       if (onAuthFailure) onAuthFailure();
     }
   });
 };
 
 // Must be called from a button click or user interaction
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+export const googleSignIn = async (hintEmail?: string): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
+    const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
+
+    const emailToHint = hintEmail || auth.currentUser?.email;
+    if (emailToHint) {
+      provider.setCustomParameters({
+        login_hint: emailToHint
+      });
+    }
+
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
@@ -127,10 +130,6 @@ export const getAccessToken = async (): Promise<string | null> => {
 };
 
 export const logout = async () => {
-  cachedAccessToken = null;
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(STORAGE_KEY_TOKEN);
-    localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
-  }
+  clearStoredAccessToken();
   await auth.signOut();
 };

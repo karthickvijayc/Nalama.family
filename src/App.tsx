@@ -17,7 +17,7 @@ import { PWAInstallBanner } from './components/PWAInstallBanner';
 import LoginScreen from './components/LoginScreen';
 import LegalPages from './components/LegalPages';
 import IntakeWizard from './components/IntakeWizard';
-import { initAuth, logout } from './lib/auth';
+import { initAuth, logout, googleSignIn, clearStoredAccessToken } from './lib/auth';
 import { 
   findOrCreateFolder, 
   findFileOrFolder, 
@@ -33,7 +33,7 @@ import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { useWakeLock } from './lib/wakeLock';
 import { useAndroidBackNavigation } from './lib/backNavigation';
 import { User } from 'firebase/auth';
-import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch } from 'lucide-react';
+import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch, User as UserIcon } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
 import DriveAuditTab from './components/DriveAuditTab';
 
@@ -41,10 +41,12 @@ export type { DriveState };
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
-  const [needsAuth, setNeedsAuth] = useState(true);
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [initMessage, setInitMessage] = useState('Loading...');
+  const [initMessage, setInitMessage] = useState('Connecting to Google Drive...');
   const [initError, setInitError] = useState<string | null>(null);
+  const [needsDriveReconnect, setNeedsDriveReconnect] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [lastToken, setLastToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [driveState, setDriveState] = useState<DriveState | null>(null);
@@ -214,6 +216,20 @@ export default function App() {
     } catch (err: any) {
       console.error('Failed to initialize drive:', err);
       let errorMsg = err.message || 'Unknown error occurred while connecting to Google Drive.';
+      
+      const isAuthError = 
+        errorMsg.includes('401') || 
+        errorMsg.includes('Invalid Credentials') || 
+        errorMsg.includes('UNAUTHENTICATED') || 
+        errorMsg.includes('invalid_grant');
+
+      if (isAuthError) {
+        clearStoredAccessToken();
+        setNeedsDriveReconnect(true);
+        setIsInitializing(false);
+        return;
+      }
+
       if (errorMsg.includes('Failed to fetch')) {
         errorMsg = 'Connection blocked. Please disable any ad-blockers (like Brave Shields) or check your network.';
       }
@@ -226,6 +242,8 @@ export default function App() {
     const unsubscribe = initAuth(
       (loggedInUser, token) => {
         setUser(loggedInUser);
+        setNeedsAuth(false);
+        setNeedsDriveReconnect(false);
         setIsInitializing(true);
         initializeDriveEnv(token, loggedInUser);
       },
@@ -234,6 +252,14 @@ export default function App() {
         setDriveState(null);
         setUserProfile(null);
         setNeedsAuth(true);
+        setNeedsDriveReconnect(false);
+        setIsInitializing(false);
+      },
+      (loggedInUser) => {
+        // User session exists in Firebase, but Drive access token needs 1-tap refresh
+        setUser(loggedInUser);
+        setNeedsAuth(false);
+        setNeedsDriveReconnect(true);
         setIsInitializing(false);
       }
     );
@@ -242,8 +268,32 @@ export default function App() {
 
   const handleLogout = async () => {
     await logout();
-    setNeedsAuth(true);
+    setUser(null);
     setDriveState(null);
+    setUserProfile(null);
+    setNeedsDriveReconnect(false);
+    setNeedsAuth(true);
+  };
+
+  const handleDriveReconnect = async () => {
+    setIsReconnecting(true);
+    setInitError(null);
+    try {
+      const res = await googleSignIn(user?.email || undefined);
+      if (res) {
+        setUser(res.user);
+        setNeedsDriveReconnect(false);
+        setIsInitializing(true);
+        await initializeDriveEnv(res.accessToken, res.user);
+      }
+    } catch (err: any) {
+      console.error('Failed to reconnect Google Drive:', err);
+      if (err.code !== 'auth/popup-closed-by-user') {
+        alert(err.message || 'Failed to reconnect Google Drive. Please try again.');
+      }
+    } finally {
+      setIsReconnecting(false);
+    }
   };
 
   if (legalView) {
@@ -287,7 +337,17 @@ export default function App() {
             </p>
           </div>
           <div className="flex flex-col w-full gap-2.5 pt-2">
-            {lastToken && (
+            {user && (
+              <button
+                onClick={handleDriveReconnect}
+                disabled={isReconnecting}
+                className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white font-bold rounded-2xl shadow-md flex items-center justify-center gap-2 active:scale-98 transition-all"
+              >
+                <RefreshCw size={18} className={isReconnecting ? 'animate-spin' : ''} />
+                <span>{isReconnecting ? 'Reconnecting to Drive...' : 'Reconnect Google Drive'}</span>
+              </button>
+            )}
+            {lastToken && !user && (
               <button
                 onClick={() => initializeDriveEnv(lastToken)}
                 className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-2xl shadow-md flex items-center justify-center gap-2 active:scale-98 transition-all"
@@ -302,6 +362,62 @@ export default function App() {
             >
               <LogOut size={16} />
               <span>Sign Out & Reconnect</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Seamless Reconnect Screen when User session is active but Google Drive OAuth needs refresh
+  if (needsDriveReconnect && user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F9F7F4] p-6 selection:bg-tree-100">
+        <div className="bg-white max-w-sm w-full rounded-3xl p-6 sm:p-8 shadow-xl border border-stone-200/90 flex flex-col items-center text-center gap-5 animate-in fade-in zoom-in-95 duration-200">
+          {user.photoURL ? (
+            <img 
+              src={user.photoURL} 
+              alt={user.displayName || 'User'} 
+              className="w-16 h-16 rounded-full border-2 border-tree-500 shadow-md object-cover" 
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-tree-50 border border-tree-200 flex items-center justify-center text-tree-700">
+              <UserIcon size={32} />
+            </div>
+          )}
+
+          <div>
+            <span className="text-xs font-bold text-tree-700 uppercase tracking-widest bg-tree-50 px-2.5 py-1 rounded-full border border-tree-100">
+              Session Resumed
+            </span>
+            <h3 className="text-xl font-extrabold text-stone-900 mt-2">
+              Welcome back, {user.displayName?.split(' ')[0] || 'there'}!
+            </h3>
+            <p className="text-xs text-stone-500 font-medium mt-1 leading-relaxed">
+              Your Google Drive session expired while the app was updated. Tap below to resume access to your private health files with {user.email}.
+            </p>
+          </div>
+
+          <div className="flex flex-col w-full gap-2.5 pt-2">
+            <button
+              onClick={handleDriveReconnect}
+              disabled={isReconnecting}
+              className="w-full py-3.5 bg-tree-700 hover:bg-tree-800 disabled:bg-tree-400 text-white font-bold rounded-2xl shadow-md flex items-center justify-center gap-2 active:scale-98 transition-all text-sm cursor-pointer"
+            >
+              {isReconnecting ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <RefreshCw size={16} />
+              )}
+              <span>{isReconnecting ? 'Connecting to Drive...' : 'Resume Google Drive Session'}</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              disabled={isReconnecting}
+              className="w-full py-2.5 text-xs text-stone-400 hover:text-stone-600 font-semibold transition-colors"
+            >
+              Use a different Google account
             </button>
           </div>
         </div>
