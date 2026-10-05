@@ -49,6 +49,7 @@ import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { COMPANION_APP_INFO } from '../lib/companionConstants';
 import DiagnosticsViewer from './DiagnosticsViewer';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
+import { useWakeLock } from '../lib/wakeLock';
 
 interface SettingsProps {
   onLogout?: () => void;
@@ -102,6 +103,9 @@ export default function Settings({
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
   const [isResettingAll, setIsResettingAll] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+
+  // Keep screen awake while performing complete Drive context reset
+  useWakeLock(isResettingAll, 'resetting_all_context');
 
   // External data import toggle state
   const [enableExternalImport, setEnableExternalImport] = useState(userProfile?.enableExternalDataImport || false);
@@ -1710,6 +1714,12 @@ export default function Settings({
                 )}
                 {isResettingAll ? 'Resetting Drive files...' : 'Yes, Reset All Context'}
               </button>
+
+              {isResettingAll && (
+                <p className="text-[11px] text-stone-500 text-center animate-pulse py-0.5">
+                  Screen will stay on until Drive cleanup finishes.
+                </p>
+              )}
               
               <button
                 type="button"

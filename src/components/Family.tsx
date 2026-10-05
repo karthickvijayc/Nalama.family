@@ -36,6 +36,7 @@ import {
   searchSharedCareDigests,
   extractDriveId
 } from '../lib/drive';
+import { useWakeLock } from '../lib/wakeLock';
 
 interface FamilyProps {
   driveState?: DriveState | null;
@@ -99,6 +100,9 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkInputVal, setLinkInputVal] = useState('');
   const [isLinking, setIsLinking] = useState(false);
+
+  // Keep screen awake during caregiver digest synchronization or Drive scans
+  useWakeLock(isLoading || isRefreshing || isScanningDrive || isLinking || isSavingName, 'family_digest_operations');
 
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 

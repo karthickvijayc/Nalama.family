@@ -25,6 +25,7 @@ import {
 } from '../lib/drive';
 import { parseImportFileContent, normalizeDateStr } from '../lib/importers/parser';
 import { executeExternalDataSync } from '../lib/importers/syncEngine';
+import { useWakeLock } from '../lib/wakeLock';
 
 interface DriveAuditTabProps {
   driveState: DriveState | null;
@@ -63,6 +64,9 @@ export default function DriveAuditTab({ driveState, onRefreshLogs }: DriveAuditT
   const [filterType, setFilterType] = useState<'all' | 'anomalies_only' | 'matched_only'>('anomalies_only');
   const [isPurging, setIsPurging] = useState(false);
   const [isResyncing, setIsResyncing] = useState(false);
+
+  // Keep screen awake while scanning Drive partitions or purging anomalous logs
+  useWakeLock(isScanning || isPurging || isResyncing, 'drive_audit_operations');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 

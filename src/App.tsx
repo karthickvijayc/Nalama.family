@@ -30,6 +30,7 @@ import {
   resetAllDriveContext 
 } from './lib/drive';
 import { executeExternalDataSync } from './lib/importers/syncEngine';
+import { useWakeLock } from './lib/wakeLock';
 import { User } from 'firebase/auth';
 import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
@@ -65,6 +66,10 @@ export default function App() {
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const syncTimeoutRef = useRef<any>(null);
   const initialSyncAttemptedRef = useRef(false);
+
+  // Keep screen awake during initial Drive context connection/loading and external data sync processing
+  useWakeLock(isInitializing, 'initializing_drive_context');
+  useWakeLock(syncStatus === 'checking' || syncStatus === 'processing' || isManualSyncing, 'syncing_external_data');
 
   // Trigger sync process
   const runExternalDataSync = async (

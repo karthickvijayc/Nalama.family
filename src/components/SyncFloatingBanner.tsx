@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, CheckCircle2, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, RefreshCw, X, Sun } from 'lucide-react';
 
 export interface SyncBannerProps {
   status: 'checking' | 'processing' | 'success' | 'error' | 'idle';
@@ -35,11 +35,19 @@ export default function SyncFloatingBanner({ status, message, onDismiss, onRetry
           )}
 
           <div className="flex flex-col min-w-0">
-            <span className="text-xs font-bold tracking-tight truncate leading-tight">
-              {isBusy && (status === 'checking' ? 'Checking for Health Data...' : 'Processing Health Data...')}
-              {isSuccess && 'Health Sync Complete'}
-              {isError && 'Health Sync Issue'}
-            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-bold tracking-tight truncate leading-tight">
+                {isBusy && (status === 'checking' ? 'Checking for Health Data...' : 'Processing Health Data...')}
+                {isSuccess && 'Health Sync Complete'}
+                {isError && 'Health Sync Issue'}
+              </span>
+              {isBusy && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-teal-200/90 font-medium bg-teal-800/60 px-1.5 py-0.5 rounded-full border border-teal-600/40 shrink-0">
+                  <Sun size={9} className="text-amber-300" />
+                  Screen on
+                </span>
+              )}
+            </div>
             <span className="text-[11px] opacity-90 truncate font-medium">
               {message}
             </span>

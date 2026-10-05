@@ -38,6 +38,7 @@ import { DriveState, HealthLogEntry, UserProfile, TimeBucket, TrendMetricType } 
 import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName, listMonthlyLogFiles } from '../lib/drive';
 import TrendModal from './TrendModal';
 import { parseProfileWeight, extractWeightFromLog } from '../lib/trendGenerator';
+import { useWakeLock } from '../lib/wakeLock';
 
 type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
@@ -186,6 +187,9 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [healthLogs, setHealthLogs] = useState<HealthLogEntry[]>([]);
   const [allHistoricalLogs, setAllHistoricalLogs] = useState<HealthLogEntry[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  // Keep screen awake while loading and synthesizing monthly health logs and metrics
+  useWakeLock(isLoadingLogs, 'loading_dashboard_context');
   const [todayCaloriesConsumed, setTodayCaloriesConsumed] = useState<number | null>(null);
   const [todayCaloriesBurned, setTodayCaloriesBurned] = useState<number | null>(null);
   const [todayActiveMinutes, setTodayActiveMinutes] = useState<number | null>(null);

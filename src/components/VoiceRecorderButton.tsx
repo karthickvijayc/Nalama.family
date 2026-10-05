@@ -29,6 +29,7 @@ import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCare
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
+import { useWakeLock } from '../lib/wakeLock';
 
 interface VoiceRecorderButtonProps {
   driveState: DriveState | null;
@@ -99,6 +100,11 @@ function getLocalTimeBucket(text?: string, dateOrTime?: Date | string | number):
 export default function VoiceRecorderButton({ driveState, onLogSaved, visible = true, standalone = false }: VoiceRecorderButtonProps) {
   const { variant } = useRegionalVariant();
   const [modalState, setModalState] = useState<RecordingState>('idle');
+
+  // Keep screen awake while recording speech, transcribing audio, extracting facts, or saving to Drive
+  const isProcessingVoice = modalState === 'recording' || modalState === 'transcribing' || modalState === 'saving' || modalState === 'extracting' || modalState === 'generating_digest';
+  useWakeLock(isProcessingVoice, 'voice_processing');
+
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcript, setTranscript] = useState('');
   const [reviewEntries, setReviewEntries] = useState<ReviewEntryItem[]>([]);

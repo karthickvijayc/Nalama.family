@@ -23,6 +23,7 @@ import {
 } from '../drive';
 import { parseImportFileContent, parseExcelBuffer, ParseResult } from './parser';
 import { recordTelemetry, sanitizeError } from '../telemetry';
+import { withWakeLock } from '../wakeLock';
 
 export type SyncStatusCallback = (event: {
   status: 'checking' | 'processing' | 'success' | 'error' | 'idle';
@@ -48,15 +49,16 @@ export async function executeExternalDataSync(
   onProgress?: SyncStatusCallback,
   forceSync: boolean = false
 ): Promise<SyncExecutionResult> {
-  const { token, mainFolderId } = driveState;
-  const errors: string[] = [];
-  const syncStartTime = performance.now();
+  return withWakeLock('processing_imported_data', async () => {
+    const { token, mainFolderId } = driveState;
+    const errors: string[] = [];
+    const syncStartTime = performance.now();
 
-  try {
-    onProgress?.({
-      status: 'checking',
-      message: 'Checking for new Health & Workout data in Google Drive...'
-    });
+    try {
+      onProgress?.({
+        status: 'checking',
+        message: 'Checking for new Health & Workout data in Google Drive...'
+      });
 
     // 1. Ensure folder hierarchy exists in Drive: /nalama.family/imports/{health_data, gym_workouts}
     const { importsFolderId, healthFolderId, workoutFolderId } = await getOrCreateImportsFolders(token, mainFolderId);
@@ -374,13 +376,14 @@ export async function executeExternalDataSync(
       }
     }
 
-    return {
-      success: false,
-      totalNewLogsAdded: 0,
-      totalLogsUpdated: 0,
-      filesProcessed: 0,
-      message: errorMsg,
-      errors: [errorMsg]
-    };
-  }
+      return {
+        success: false,
+        totalNewLogsAdded: 0,
+        totalLogsUpdated: 0,
+        filesProcessed: 0,
+        message: errorMsg,
+        errors: [errorMsg]
+      };
+    }
+  });
 }
