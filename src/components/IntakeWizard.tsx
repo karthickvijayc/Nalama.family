@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, UserTargets } from '../types';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 export interface IntakeWizardProps {
   initialProfile: UserProfile;
@@ -25,6 +26,9 @@ export interface IntakeWizardProps {
 export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardProps) {
   const { variant, syncWithProfileLanguage } = useRegionalVariant();
   const [step, setStep] = useState(1);
+
+  // Return to previous wizard step on Android back button/swipe
+  useModalBackHandler(step > 1, () => setStep(s => Math.max(1, s - 1)));
   const [profile, setProfile] = useState<UserProfile>({
     ...initialProfile,
     nickname: initialProfile.nickname || initialProfile.displayName?.split(' ')[0] || '',

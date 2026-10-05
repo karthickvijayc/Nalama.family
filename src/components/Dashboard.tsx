@@ -39,6 +39,7 @@ import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUser
 import TrendModal from './TrendModal';
 import { parseProfileWeight, extractWeightFromLog } from '../lib/trendGenerator';
 import { useWakeLock } from '../lib/wakeLock';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
@@ -203,6 +204,10 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
   const [selectedActivity, setSelectedActivity] = useState<ActivityEntry | null>(null);
   const [visibleDaysCount, setVisibleDaysCount] = useState<number>(3);
+
+  // Close trend modal or activity detail modal on Android back button/swipe
+  useModalBackHandler(selectedTrendMetric !== null, () => setSelectedTrendMetric(null));
+  useModalBackHandler(selectedActivity !== null, () => setSelectedActivity(null));
 
   // Keep scroll focused on Today at top upon initial load
   useEffect(() => {

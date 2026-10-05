@@ -31,6 +31,7 @@ import {
 } from './lib/drive';
 import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { useWakeLock } from './lib/wakeLock';
+import { useAndroidBackNavigation } from './lib/backNavigation';
 import { User } from 'firebase/auth';
 import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, ScanSearch } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
@@ -70,6 +71,17 @@ export default function App() {
   // Keep screen awake during initial Drive context connection/loading and external data sync processing
   useWakeLock(isInitializing, 'initializing_drive_context');
   useWakeLock(syncStatus === 'checking' || syncStatus === 'processing' || isManualSyncing, 'syncing_external_data');
+
+  // Android back button and screen swipe gesture management:
+  // - Closes active modals/sub-views first
+  // - Redirects to 'home' on 1st back attempt from any tab
+  // - Prompts "Press back again to exit" on home, exiting on 2nd attempt
+  const { showExitToast } = useAndroidBackNavigation({
+    activeTab,
+    setActiveTab,
+    legalView,
+    setLegalView
+  });
 
   // Trigger sync process
   const runExternalDataSync = async (
@@ -490,6 +502,20 @@ export default function App() {
             />
           </div>
         </nav>
+      )}
+
+      {/* Android Back / Swipe Exit Toast Prompt */}
+      {showExitToast && (
+        <div 
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-3 duration-200"
+        >
+          <div className="bg-stone-900/90 text-white backdrop-blur-md px-4 py-2.5 rounded-full shadow-2xl border border-white/10 flex items-center gap-2">
+            <LogOut size={13} className="text-amber-400 rotate-180" />
+            <span className="text-xs font-semibold tracking-wide">Press back again to exit</span>
+          </div>
+        </div>
       )}
     </div>
   );

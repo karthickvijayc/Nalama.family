@@ -25,6 +25,7 @@ import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCare
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 interface HealthDocUploaderProps {
   driveState: DriveState | null;
@@ -109,6 +110,12 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
   // Keep screen awake while uploading, analyzing, extracting, or saving health documents
   const isProcessingDoc = uploaderState === 'analyzing' || uploaderState === 'extracting' || uploaderState === 'saving' || uploaderState === 'generating_digest';
   useWakeLock(isProcessingDoc, 'health_doc_processing');
+
+  // Close upload/analysis modal on Android back button/swipe
+  useModalBackHandler(isModalOpen, () => {
+    setIsModalOpen(false);
+    setUploaderState('idle');
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reviewEntries, setReviewEntries] = useState<ReviewEntryItem[]>([]);
   const [defaultDate, setDefaultDate] = useState<string>(() => new Date().toISOString().split('T')[0]);

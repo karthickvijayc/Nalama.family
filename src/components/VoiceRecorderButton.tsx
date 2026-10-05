@@ -30,6 +30,7 @@ import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 interface VoiceRecorderButtonProps {
   driveState: DriveState | null;
@@ -104,6 +105,9 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
   // Keep screen awake while recording speech, transcribing audio, extracting facts, or saving to Drive
   const isProcessingVoice = modalState === 'recording' || modalState === 'transcribing' || modalState === 'saving' || modalState === 'extracting' || modalState === 'generating_digest';
   useWakeLock(isProcessingVoice, 'voice_processing');
+
+  // Close voice memo modal on Android back button/swipe
+  useModalBackHandler(modalState !== 'idle', () => setModalState('idle'));
 
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcript, setTranscript] = useState('');

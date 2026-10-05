@@ -37,6 +37,7 @@ import {
   extractDriveId
 } from '../lib/drive';
 import { useWakeLock } from '../lib/wakeLock';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 interface FamilyProps {
   driveState?: DriveState | null;
@@ -103,6 +104,11 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
 
   // Keep screen awake during caregiver digest synchronization or Drive scans
   useWakeLock(isLoading || isRefreshing || isScanningDrive || isLinking || isSavingName, 'family_digest_operations');
+
+  // Close family member modals on Android back button/swipe
+  useModalBackHandler(showEditNameModal, () => setShowEditNameModal(false));
+  useModalBackHandler(showAddProfileModal, () => setShowAddProfileModal(false));
+  useModalBackHandler(showLinkModal, () => setShowLinkModal(false));
 
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 

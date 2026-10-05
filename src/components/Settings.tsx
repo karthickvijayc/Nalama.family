@@ -50,6 +50,7 @@ import { COMPANION_APP_INFO } from '../lib/companionConstants';
 import DiagnosticsViewer from './DiagnosticsViewer';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
+import { useModalBackHandler } from '../lib/backNavigation';
 
 interface SettingsProps {
   onLogout?: () => void;
@@ -118,6 +119,10 @@ export default function Settings({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // Close reset confirmation or caregiver add modal on Android back button/swipe
+  useModalBackHandler(showResetAllConfirm, () => setShowResetAllConfirm(false));
+  useModalBackHandler(isAdding, () => setIsAdding(false));
 
   // Profile section state
   const [nickname, setNickname] = useState(userProfile?.nickname || '');
