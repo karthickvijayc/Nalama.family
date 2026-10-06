@@ -194,11 +194,18 @@ export interface HealthFact {
 
 export type CoachingRoomId = 'workout' | 'diet' | 'medical' | 'reflection';
 
+export interface CoachingUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+}
+
 export interface CoachingMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   timestamp: string;
+  tokens?: number;
 }
 
 export interface CoachingRoomState {

@@ -51,6 +51,30 @@ function formatMarkdownForDisplay(content: string): string {
   return text;
 }
 
+interface RoomTokenUsage {
+  tokens: number;
+  isExact: boolean;
+  model: string;
+}
+
+// Recommended interactive thread depth for fast, sharp coaching advice
+const SESSION_FOCUS_BUDGET = 32000;
+// Full 1M token context capacity for Gemini 3.8/2.5 Flash
+const MODEL_MAX_WINDOW = 1000000;
+
+function estimateRoomTokens(
+  messages: CoachingMessage[],
+  bridgeText = ''
+): number {
+  if (messages.length === 0 && !bridgeText) return 0;
+  // Baseline system instruction, specialist prompt persona, profile and context overhead: ~1,200 tokens
+  const baseOverhead = 1200 + Math.ceil((bridgeText?.length || 0) / 3.8);
+  const messageTokens = messages.reduce((sum, msg) => {
+    return sum + Math.max(1, Math.ceil((msg.text?.length || 0) / 3.8)) + 4;
+  }, 0);
+  return baseOverhead + messageTokens;
+}
+
 interface CoachingRoomConfig {
   id: CoachingRoomId;
   title: string;
@@ -170,6 +194,14 @@ export default function Coaching({
     reflection: ''
   });
 
+  // Token-aware context saturation tracking per room
+  const [roomTokenUsage, setRoomTokenUsage] = useState<Record<CoachingRoomId, RoomTokenUsage>>({
+    workout: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' },
+    diet: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' },
+    medical: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' },
+    reflection: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' }
+  });
+
   // Voice dictation & Audio Readout States
   const [isListening, setIsListening] = useState(false);
   const [showCoachingHelp, setShowCoachingHelp] = useState(false);
@@ -208,6 +240,9 @@ export default function Coaching({
               medical: Array.isArray(content.rooms.medical) ? content.rooms.medical : [],
               reflection: Array.isArray(content.rooms.reflection) ? content.rooms.reflection : []
             });
+            if (content.tokenUsage) {
+              setRoomTokenUsage(content.tokenUsage);
+            }
           } else {
             setRoomMessages({ workout: [], diet: [], medical: [], reflection: [] });
           }
@@ -224,12 +259,16 @@ export default function Coaching({
     initChats();
   }, [driveState?.token, driveState?.mainFolderId, refreshTrigger]);
 
-  const saveChatsToDrive = async (updatedRooms: Record<CoachingRoomId, CoachingMessage[]>) => {
+  const saveChatsToDrive = async (
+    updatedRooms: Record<CoachingRoomId, CoachingMessage[]>,
+    updatedUsage?: Record<CoachingRoomId, RoomTokenUsage>
+  ) => {
     if (!driveState?.token || !driveState?.mainFolderId) return;
     try {
       const payload = {
         schema_version: "1.0",
-        rooms: updatedRooms
+        rooms: updatedRooms,
+        tokenUsage: updatedUsage || roomTokenUsage
       };
       const fileId = await writeJsonFile(
         driveState.token,
@@ -266,10 +305,67 @@ export default function Coaching({
       ...prev,
       [activeRoomId]: bridgeText
     }));
+
+    const resetTokens = bridgeText ? estimateRoomTokens([], bridgeText) : 0;
+    const updatedUsage: Record<CoachingRoomId, RoomTokenUsage> = {
+      ...roomTokenUsage,
+      [activeRoomId]: {
+        tokens: resetTokens,
+        isExact: !bridgeText,
+        model: roomTokenUsage[activeRoomId]?.model || 'gemini-3.8-flash'
+      }
+    };
+    setRoomTokenUsage(updatedUsage);
+
     setShowResetConfirm(false);
     
-    await saveChatsToDrive(updatedRooms);
+    await saveChatsToDrive(updatedRooms, updatedUsage);
   };
+
+  // Synchronize or refine exact token count for the active room in the background if messages exist
+  useEffect(() => {
+    if (!activeRoomId) return;
+    const msgs = roomMessages[activeRoomId] || [];
+    if (msgs.length === 0) return;
+    if (roomTokenUsage[activeRoomId]?.isExact) return;
+
+    let isMounted = true;
+    async function fetchPreciseTokenCount() {
+      try {
+        const response = await fetch('/api/count-tokens', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getGeminiApiKeyHeader()
+          },
+          body: JSON.stringify({
+            contents: msgs.map(m => ({
+              role: m.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: m.text }]
+            }))
+          })
+        });
+        if (response.ok && isMounted) {
+          const data = await response.json();
+          if (typeof data.totalTokens === 'number') {
+            const fullTokens = data.totalTokens + 1200;
+            setRoomTokenUsage(prev => ({
+              ...prev,
+              [activeRoomId]: {
+                tokens: fullTokens,
+                isExact: true,
+                model: data.model || prev[activeRoomId]?.model || 'gemini-3.8-flash'
+              }
+            }));
+          }
+        }
+      } catch {
+        // Fallback remains the active estimation
+      }
+    }
+    fetchPreciseTokenCount();
+    return () => { isMounted = false; };
+  }, [activeRoomId, roomMessages[activeRoomId]?.length]);
 
   const startSpeechRecognition = () => {
     if (typeof window === 'undefined') return;
@@ -602,7 +698,8 @@ export default function Coaching({
         id: 'msg-bot-' + Date.now(),
         role: 'assistant',
         text: data.reply || "I'm here to support you.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        tokens: data.usageMetadata?.candidatesTokenCount
       };
 
       const finalMessages = [...updatedHistory, newBotMsg];
@@ -613,6 +710,18 @@ export default function Coaching({
 
       setRoomMessages(finalRooms);
 
+      // Record exact token usage returned by Gemini API
+      const exactTotal = data.usageMetadata?.totalTokenCount;
+      const updatedUsage: Record<CoachingRoomId, RoomTokenUsage> = {
+        ...roomTokenUsage,
+        [activeRoomId]: {
+          tokens: typeof exactTotal === 'number' ? exactTotal : estimateRoomTokens(finalMessages, ''),
+          isExact: typeof exactTotal === 'number',
+          model: data.model || roomTokenUsage[activeRoomId]?.model || 'gemini-3.8-flash'
+        }
+      };
+      setRoomTokenUsage(updatedUsage);
+
       // Clear the bridge context as it has successfully primed this new thread's first message
       if (activeBridge) {
         setBridgeContexts(prev => ({
@@ -622,7 +731,7 @@ export default function Coaching({
       }
 
       // Persist conversations in Google Drive
-      await saveChatsToDrive(finalRooms);
+      await saveChatsToDrive(finalRooms, updatedUsage);
 
     } catch (err: any) {
       console.error('Coaching chat error:', err);
@@ -646,8 +755,16 @@ export default function Coaching({
   if (activeRoomId) {
     const roomConfig = COACHING_ROOMS.find(r => r.id === activeRoomId) || COACHING_ROOMS[0];
     const messages = roomMessages[activeRoomId] || [];
-    const messageCount = messages.length;
-    const saturationPercentage = Math.min(100, Math.round((messageCount / 12) * 100));
+    const activeUsage = roomTokenUsage[activeRoomId] || { tokens: 0, isExact: false, model: 'gemini-3.8-flash' };
+    const currentTokens = activeUsage.tokens > 0 
+      ? activeUsage.tokens 
+      : estimateRoomTokens(messages, bridgeContexts[activeRoomId] || '');
+    
+    // Percentage against the 32,000 token recommended thread focus budget
+    const focusPercentage = Math.min(100, Math.round((currentTokens / SESSION_FOCUS_BUDGET) * 100));
+    // Percentage against physical 1,000,000 token context window
+    const modelWindowPct = ((currentTokens / MODEL_MAX_WINDOW) * 100).toFixed(currentTokens > 10000 ? 1 : 2);
+    const modelName = activeUsage.model || 'gemini-3.8-flash';
 
     return (
       <div className="flex flex-col min-h-screen pt-4 pb-28 relative">
@@ -681,16 +798,23 @@ export default function Coaching({
             </div>
           </div>
 
-          {/* Context Saturation Meter */}
+          {/* Token-Aware Context Saturation Meter */}
           <div className="flex flex-col gap-1 w-full border-t border-stone-150 pt-2 px-1 mt-1">
             <div className="flex justify-between items-center text-[10px] font-bold text-stone-500">
-              <span className="flex items-center gap-1">
-                Context Saturation: 
-                <span className={
-                  saturationPercentage >= 80 ? 'text-rose-600 font-extrabold animate-pulse' :
-                  saturationPercentage >= 50 ? 'text-amber-600 font-extrabold' : 'text-tree-700 font-extrabold'
-                }>
-                  {saturationPercentage}% {saturationPercentage >= 80 ? '(High - Hallucination Risk)' : saturationPercentage >= 50 ? '(Medium)' : '(Optimal)'}
+              <span className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-stone-600 font-semibold">Context Usage:</span>
+                <span className="font-extrabold text-stone-900">
+                  {currentTokens.toLocaleString()} tokens
+                </span>
+                <span className={`px-1.5 py-0.5 text-[9px] rounded-md font-bold ${
+                  focusPercentage >= 80 ? 'bg-amber-100 text-amber-800' :
+                  focusPercentage >= 50 ? 'bg-sky-100 text-sky-800' :
+                  'bg-tree-100 text-tree-800'
+                }`}>
+                  {focusPercentage >= 80 ? 'Deep Thread' : focusPercentage >= 50 ? 'Active' : 'Optimal'}
+                </span>
+                <span className="text-[9px] text-stone-400 font-normal">
+                  ({modelName} • {modelWindowPct}% of 1M limit)
                 </span>
               </span>
               <button
@@ -701,27 +825,30 @@ export default function Coaching({
                 New Chat
               </button>
             </div>
-            <div className="h-1.5 w-full bg-stone-200 rounded-full overflow-hidden">
+            <div 
+              className="h-1.5 w-full bg-stone-200 rounded-full overflow-hidden cursor-help"
+              title={`${currentTokens.toLocaleString()} tokens (${focusPercentage}% of 32k focus budget; ${modelWindowPct}% of 1M limit on ${modelName})`}
+            >
               <div 
                 className={`h-full rounded-full transition-all duration-500 ${
-                  saturationPercentage >= 80 ? 'bg-rose-500' :
-                  saturationPercentage >= 50 ? 'bg-amber-500' : 'bg-tree-600'
+                  focusPercentage >= 80 ? 'bg-amber-500' :
+                  focusPercentage >= 50 ? 'bg-sky-500' : 'bg-tree-600'
                 }`}
-                style={{ width: `${saturationPercentage}%` }}
+                style={{ width: `${Math.max(currentTokens > 0 ? 3 : 0, focusPercentage)}%` }}
               />
             </div>
           </div>
         </header>
 
-        {/* Nudge Alert Modal if context is high */}
-        {saturationPercentage >= 70 && (
+        {/* Nudge Alert Modal if context is reaching high depth */}
+        {focusPercentage >= 80 && (
           <div className="bg-amber-50 border border-amber-200 p-4 rounded-3xl flex flex-col gap-3 mx-1 mt-3 animate-in fade-in slide-in-from-top-2">
             <div className="flex items-start gap-2.5">
               <Sparkles size={18} className="text-amber-600 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-xs font-bold text-stone-900">AI Chat is reaching saturation limits</p>
+                <p className="text-xs font-bold text-stone-900">Coaching thread is getting long (~{Math.round(currentTokens / 1000)}k tokens)</p>
                 <p className="text-[11px] font-medium text-stone-600 leading-relaxed mt-1">
-                  Long threads can sometimes lead to AI hallucinations. Start a new chat to keep the AI sharp! You can continue the active topic focus behind the scenes.
+                  For faster response times and razor-sharp advice on new goals, consider starting a fresh chat. You can use Smart Bridge to continue with a compact summary of this thread.
                 </p>
               </div>
             </div>

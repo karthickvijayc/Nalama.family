@@ -155,7 +155,15 @@ async function startServer() {
           },
         });
         if (response.text && response.text.trim()) {
-          return { text: response.text.trim(), model };
+          return { 
+            text: response.text.trim(), 
+            model,
+            usageMetadata: response.usageMetadata ? {
+              promptTokenCount: response.usageMetadata.promptTokenCount,
+              candidatesTokenCount: response.usageMetadata.candidatesTokenCount,
+              totalTokenCount: response.usageMetadata.totalTokenCount,
+            } : undefined
+          };
         }
       } catch (err: any) {
         lastError = err;
@@ -182,7 +190,15 @@ async function startServer() {
             });
             if (response.text && response.text.trim()) {
               ai = fallbackAi; // Update ai client for subsequent calls
-              return { text: response.text.trim(), model };
+              return { 
+                text: response.text.trim(), 
+                model,
+                usageMetadata: response.usageMetadata ? {
+                  promptTokenCount: response.usageMetadata.promptTokenCount,
+                  candidatesTokenCount: response.usageMetadata.candidatesTokenCount,
+                  totalTokenCount: response.usageMetadata.totalTokenCount,
+                } : undefined
+              };
             }
           } catch (retryErr: any) {
             console.warn(`Gemini model ${model} in us-central1 also failed:`, retryErr?.message || String(retryErr));
@@ -1062,11 +1078,43 @@ ${logsStr}
 
       res.json({
         reply: replyText,
-        model: result.model
+        model: result.model,
+        usageMetadata: result.usageMetadata
       });
     } catch (err: any) {
       console.error("Coaching chat API error:", err);
       res.status(500).json({ error: err.message || "Failed to process coaching message" });
+    }
+  });
+
+  // Token Counting Endpoint using Gemini API
+  app.post("/api/count-tokens", async (req, res) => {
+    try {
+      const { contents, systemInstruction } = req.body;
+      const userApiKey = extractUserApiKey(req);
+      const ai = getAiClient(userApiKey);
+      const configuredModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+
+      let normalizedContents: any = contents;
+      if (typeof contents === "string") {
+        normalizedContents = contents;
+      } else if (Array.isArray(contents)) {
+        normalizedContents = contents;
+      }
+
+      const countResponse = await ai.models.countTokens({
+        model: configuredModel,
+        contents: normalizedContents,
+        ...(systemInstruction ? { systemInstruction } : {})
+      });
+
+      res.json({
+        totalTokens: countResponse.totalTokens,
+        model: configuredModel
+      });
+    } catch (err: any) {
+      console.warn("Token counting API error:", err?.message || err);
+      res.status(500).json({ error: err.message || "Failed to count tokens" });
     }
   });
 
