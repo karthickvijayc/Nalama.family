@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
+import { hasActiveCaregivers } from '../lib/caregiverDigest';
 import { getGeminiApiKeyHeader, formatAiErrorMessage } from '../lib/geminiApiKey';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
@@ -586,61 +587,64 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       const newContextData = { ...(contextData || { schema_version: "1.0", family_members: [] }), facts: updatedFacts };
       await writeJsonFile(driveState.token, 'context_memory.json', newContextData, driveState.mainFolderId, driveState.contextFileId);
 
-      // 4. Generate & save Caregiver Digest to /nalama.family/family_share
-      setModalState('generating_digest');
-      try {
-        const preferredName = userProfile?.nickname || userProfile?.displayName || 'Family Member';
-        const tDigestStart = performance.now();
-        const digestRes = await fetch('/api/generate-digest', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...getGeminiApiKeyHeader()
-          },
-          body: JSON.stringify({
-            facts: updatedFacts,
-            recentLogs: entries,
-            profileName: preferredName,
-            userProfile
-          })
-        });
+      // 4. Generate & save Caregiver Digest to /nalama.family/family_share ONLY if caregivers are active
+      const hasCaregivers = await hasActiveCaregivers(driveState.token, driveState.familyFolderId);
+      if (hasCaregivers) {
+        setModalState('generating_digest');
+        try {
+          const preferredName = userProfile?.nickname || userProfile?.displayName || 'Family Member';
+          const tDigestStart = performance.now();
+          const digestRes = await fetch('/api/generate-digest', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...getGeminiApiKeyHeader()
+            },
+            body: JSON.stringify({
+              facts: updatedFacts,
+              recentLogs: entries,
+              profileName: preferredName,
+              userProfile
+            })
+          });
 
-        const digestDurationMs = performance.now() - tDigestStart;
-        if (digestRes.ok) {
-          const { digest } = await digestRes.json();
-          if (digest) {
-            const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId);
-            await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+          const digestDurationMs = performance.now() - tDigestStart;
+          if (digestRes.ok) {
+            const { digest } = await digestRes.json();
+            if (digest) {
+              const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId, preferredName);
+              await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+              recordTelemetry({
+                capability: 'ai',
+                operation: 'generate_digest',
+                status: 'success',
+                durationMs: digestDurationMs,
+                statusCode: digestRes.status,
+                summary: 'Caregiver family digest generated successfully'
+              });
+            }
+          } else {
             recordTelemetry({
               capability: 'ai',
               operation: 'generate_digest',
-              status: 'success',
+              status: 'warning',
               durationMs: digestDurationMs,
               statusCode: digestRes.status,
-              summary: 'Caregiver family digest generated successfully'
+              errorCode: 'DIGEST_FAILED',
+              summary: `Digest generation failed (${digestRes.status})`
             });
           }
-        } else {
+        } catch (digestErr) {
+          console.warn('Caregiver digest generation warning (non-fatal):', digestErr);
+          const sanitized = sanitizeError(digestErr);
           recordTelemetry({
             capability: 'ai',
             operation: 'generate_digest',
             status: 'warning',
-            durationMs: digestDurationMs,
-            statusCode: digestRes.status,
-            errorCode: 'DIGEST_FAILED',
-            summary: `Digest generation failed (${digestRes.status})`
+            errorCode: sanitized.errorCode,
+            summary: sanitized.summary
           });
         }
-      } catch (digestErr) {
-        console.warn('Caregiver digest generation warning (non-fatal):', digestErr);
-        const sanitized = sanitizeError(digestErr);
-        recordTelemetry({
-          capability: 'ai',
-          operation: 'generate_digest',
-          status: 'warning',
-          errorCode: sanitized.errorCode,
-          summary: sanitized.summary
-        });
       }
 
       setModalState('success');

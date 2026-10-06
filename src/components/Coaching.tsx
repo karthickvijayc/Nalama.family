@@ -29,6 +29,7 @@ import {
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getInsightsFromDrive, saveInsightsToDrive, readJsonFile, getOrCreateMonthlyLogFile, getUserProfileFromDrive, writeJsonFile, getOrCreateCareDigestFile, appendCaregiverDigest, findFileOrFolder } from '../lib/drive';
+import { hasActiveCaregivers } from '../lib/caregiverDigest';
 import { CoachingRoomId, CoachingMessage, UserProfile, HealthFact, HealthLogEntry } from '../types';
 import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
@@ -432,9 +433,9 @@ export default function Coaching({
         data: newInsights
       });
       
-      // Append Weekly Insights to Caregiver Digest
+      // Append Weekly Insights to Caregiver Digest ONLY if caregivers are active
       try {
-        if (driveState.familyFolderId) {
+        if (driveState.familyFolderId && (await hasActiveCaregivers(driveState.token, driveState.familyFolderId))) {
           const { fileId: careFileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId);
           const achievementsStr = newInsights.achievements?.join(', ') || 'Maintained stability.';
           const weeklyDigest = {

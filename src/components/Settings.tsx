@@ -44,6 +44,7 @@ import {
 import React, { useState, useEffect } from 'react';
 import { getFolderPermissions, addFolderPermission, removeFolderPermission, getFamilyMembersFromDrive } from '../lib/drive';
 import { isContactPickerSupported, pickContactEmail, getRecentContacts, saveRecentContact, ContactItem } from '../lib/contactPicker';
+import { setCaregiversCachedStatus, ensureInitialCaregiverDigest } from '../lib/caregiverDigest';
 import { DriveState, UserProfile, UserTargets } from '../types';
 import { getCustomGeminiApiKey, setCustomGeminiApiKey, getAiFetchHeaders } from '../lib/geminiApiKey';
 import { User as FirebaseUser } from 'firebase/auth';
@@ -416,6 +417,7 @@ export default function Settings({
       // Filter out the owner so we only show the invited people
       const invited = perms.filter((p: any) => p.role !== 'owner');
       setCaregivers(invited);
+      setCaregiversCachedStatus(invited.length > 0);
     } catch (err) {
       console.error('Error loading permissions:', err);
     } finally {
@@ -494,6 +496,21 @@ export default function Settings({
     try {
       await addFolderPermission(driveState.token, driveState.familyFolderId, email.trim());
       saveRecentContact(email.trim(), selectedContactName || undefined);
+      setCaregiversCachedStatus(true);
+
+      // Immediately generate first/initial digest so new caregiver sees up-to-date data upon opening Drive
+      try {
+        await ensureInitialCaregiverDigest({
+          token: driveState.token,
+          familyFolderId: driveState.familyFolderId,
+          mainFolderId: driveState.mainFolderId,
+          contextFileId: driveState.contextFileId,
+          userProfile
+        });
+      } catch (digestErr) {
+        console.warn('Initial digest generation notice:', digestErr);
+      }
+
       setEmail('');
       setSelectedContactName(null);
       setContactPickerNotice(null);

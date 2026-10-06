@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
+import { hasActiveCaregivers } from '../lib/caregiverDigest';
 import { getGeminiApiKeyHeader, formatAiErrorMessage } from '../lib/geminiApiKey';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
@@ -392,32 +393,36 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       const newContextData = { ...(contextData || { schema_version: "1.0", family_members: [] }), facts: updatedFacts };
       await writeJsonFile(driveState.token, 'context_memory.json', newContextData, driveState.mainFolderId, driveState.contextFileId);
 
-      setUploaderState('generating_digest');
-      try {
-        const preferredName = userProfileObj?.nickname || userProfileObj?.displayName || 'Family Member';
-        const digestRes = await fetch('/api/generate-digest', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...getGeminiApiKeyHeader()
-          },
-          body: JSON.stringify({
-            facts: updatedFacts,
-            recentLogs: entries,
-            profileName: preferredName,
-            userProfile: userProfileObj
-          })
-        });
+      // Gate Caregiver Digest Generation: Only generate if caregivers are active
+      const hasCaregivers = await hasActiveCaregivers(driveState.token, driveState.familyFolderId);
+      if (hasCaregivers) {
+        setUploaderState('generating_digest');
+        try {
+          const preferredName = userProfileObj?.nickname || userProfileObj?.displayName || 'Family Member';
+          const digestRes = await fetch('/api/generate-digest', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...getGeminiApiKeyHeader()
+            },
+            body: JSON.stringify({
+              facts: updatedFacts,
+              recentLogs: entries,
+              profileName: preferredName,
+              userProfile: userProfileObj
+            })
+          });
 
-        if (digestRes.ok) {
-          const { digest } = await digestRes.json();
-          if (digest) {
-            const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId);
-            await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+          if (digestRes.ok) {
+            const { digest } = await digestRes.json();
+            if (digest) {
+              const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId, preferredName);
+              await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+            }
           }
+        } catch (digestErr) {
+          console.warn('Digest generation warning:', digestErr);
         }
-      } catch (digestErr) {
-        console.warn('Digest generation warning:', digestErr);
       }
 
       setUploaderState('success');
