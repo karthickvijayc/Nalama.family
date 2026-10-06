@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Mic, 
   Square, 
@@ -777,6 +778,11 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
     { key: 'general', label: 'General', icon: <MessageSquare size={14} />, activeColor: 'bg-stone-800 text-white border-stone-800', pillColor: 'bg-stone-100 text-stone-700 border-stone-200' },
   ];
 
+  const renderPortal = (children: React.ReactNode) => {
+    if (typeof document === 'undefined') return null;
+    return createPortal(children, document.body);
+  };
+
   return (
     <>
       {/* Floating Trigger Button (when idle and visible) */}
@@ -838,8 +844,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Active Recording Overlay */}
-      {modalState === 'recording' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'recording' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-6 animate-in zoom-in-95 duration-200">
             
             {/* Header & Close */}
@@ -850,7 +856,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
               </div>
               <button 
                 onClick={cancelRecording}
-                className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
                 aria-label="Cancel recording"
               >
                 <X size={22} />
@@ -879,13 +885,13 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
             <div className="w-full flex gap-3">
               <button
                 onClick={cancelRecording}
-                className="flex-1 py-4 text-stone-600 font-bold bg-stone-100 hover:bg-stone-200 rounded-2xl transition-colors"
+                className="flex-1 py-4 text-stone-600 font-bold bg-stone-100 hover:bg-stone-200 rounded-2xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={stopAndTranscribe}
-                className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-teal-600/30 transition-all"
+                className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-teal-600/30 transition-all cursor-pointer"
               >
                 <Square size={20} className="fill-white" />
                 <span>Done & Transcribe</span>
@@ -897,8 +903,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Transcribing State */}
-      {modalState === 'transcribing' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'transcribing' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">
               <Loader2 size={36} className="animate-spin" />
@@ -912,8 +918,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Saving State */}
-      {modalState === 'saving' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'saving' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
               <Loader2 size={36} className="animate-spin" />
@@ -927,8 +933,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Extracting Context State */}
-      {modalState === 'extracting' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'extracting' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <Sparkles size={36} className="animate-pulse" />
@@ -942,8 +948,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Generating Caregiver Digest State */}
-      {modalState === 'generating_digest' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'generating_digest' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center">
               <Users size={36} className="animate-pulse" />
@@ -957,8 +963,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Extraction Error State */}
-      {modalState === 'extraction_error' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'extraction_error' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-5 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
               <AlertCircle size={36} />
@@ -978,7 +984,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
               <button
                 type="button"
                 onClick={cancelRecording}
-                className="flex-1 py-3 border border-stone-200 text-stone-600 font-bold rounded-xl hover:bg-stone-50 transition-colors"
+                className="flex-1 py-3 border border-stone-200 text-stone-600 font-bold rounded-xl hover:bg-stone-50 transition-colors cursor-pointer"
               >
                 Dismiss
               </button>
@@ -989,7 +995,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
                     extractContext(latestEntriesRef.current);
                   }
                 }}
-                className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl transition-all"
+                className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl transition-all cursor-pointer"
               >
                 Retry Profile Update
               </button>
@@ -999,8 +1005,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       )}
 
       {/* Success State */}
-      {modalState === 'success' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {modalState === 'success' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center">
               <Check size={36} strokeWidth={3} />
@@ -1013,299 +1019,309 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         </div>
       )}
 
-      {/* Review & Edit Modal (Centered, z-[70], multi-item classification) */}
-      {modalState === 'review' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white max-w-lg w-full rounded-3xl p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+      {/* Review & Edit Modal (Centered, z-[80], multi-item classification) */}
+      {modalState === 'review' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-3 sm:p-4 pb-6 pb-safe">
+          <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 border border-stone-200/80">
             
-            {/* Header */}
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Edit3 size={20} className="text-teal-600" />
-                  <h3 className="text-xl font-bold text-stone-900">
-                    Review Health Entries
-                  </h3>
-                  {reviewEntries.length > 1 && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800">
-                      {reviewEntries.length} Items Detected
-                    </span>
-                  )}
+            {/* Pinned Header */}
+            <div className="p-5 sm:p-6 pb-3.5 border-b border-stone-100 shrink-0">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Edit3 size={20} className="text-teal-600" />
+                    <h3 className="text-xl font-bold text-stone-900">
+                      Review Health Entries
+                    </h3>
+                    {reviewEntries.length > 1 && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800">
+                        {reviewEntries.length} Items Detected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-500 font-medium mt-0.5">
+                    Gemini classified your note into actionable entries. Edit or adjust as needed.
+                  </p>
                 </div>
-                <p className="text-xs text-stone-500 font-medium mt-0.5">
-                  Gemini classified your note into actionable entries. Edit or adjust as needed.
-                </p>
+                <button 
+                  onClick={cancelRecording}
+                  className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
               </div>
-              <button 
-                onClick={cancelRecording}
-                className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
-                aria-label="Close"
-              >
-                <X size={20} />
-              </button>
             </div>
 
-            {/* Error / Status Message if any */}
-            {errorMessage && (
-              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium flex items-start gap-2">
-                <AlertCircle size={16} className="shrink-0 mt-0.5 text-amber-600" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* Audio Playback Preview (if audio was recorded) */}
-            {audioUrl && (
-              <div className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-200">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={toggleAudioPlayback}
-                    className="w-10 h-10 rounded-full bg-teal-600 text-white flex items-center justify-center shadow-md hover:bg-teal-700 transition-colors"
-                    aria-label={isPlayingAudio ? "Pause audio" : "Play audio"}
-                  >
-                    {isPlayingAudio ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
-                  </button>
-                  <div className="flex flex-col">
-                    <span className="text-xs font-bold text-stone-800">Voice Note Preview</span>
-                    <span className="text-[11px] text-stone-500 font-medium">{formatSeconds(recordingDuration)} duration</span>
-                  </div>
+            {/* Scrollable Content Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 flex flex-col gap-4 min-h-0">
+              {/* Error / Status Message if any */}
+              {errorMessage && (
+                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5 text-amber-600" />
+                  <span>{errorMessage}</span>
                 </div>
-                <audio 
-                  ref={audioPlayerRef} 
-                  src={audioUrl} 
-                  onEnded={() => setIsPlayingAudio(false)} 
-                  className="hidden" 
-                />
-                <button
-                  onClick={startRecording}
-                  className="flex items-center gap-1 text-xs font-bold text-stone-500 hover:text-teal-600 px-2 py-1 rounded-lg hover:bg-stone-200/60 transition-colors"
-                >
-                  <RotateCcw size={14} />
-                  <span>Rerecord</span>
-                </button>
-              </div>
-            )}
+              )}
 
-            {/* Collapsible Spoken Verbatim Transcript */}
-            {transcript && (
-              <div className="bg-stone-50 rounded-2xl border border-stone-200 p-3 flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowRawTranscript(!showRawTranscript)}
-                  className="flex items-center justify-between w-full text-left text-xs font-bold text-stone-600 hover:text-stone-900"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <MessageSquare size={13} className="text-stone-400" />
-                    Spoken Transcript
-                  </span>
-                  {showRawTranscript ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
-                {showRawTranscript && (
-                  <p className="text-xs text-stone-700 leading-relaxed pt-1.5 border-t border-stone-200/60 font-medium italic">
-                    &ldquo;{transcript}&rdquo;
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Classified Entries List */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                  Classified Items ({reviewEntries.length})
-                </label>
-                <button
-                  type="button"
-                  onClick={reclassifyWithAi}
-                  disabled={isClassifying}
-                  className="flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-800 disabled:opacity-50"
-                  title="Re-analyze and split into categories"
-                >
-                  {isClassifying ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={12} className="text-teal-600" />
-                  )}
-                  <span>Re-classify with AI</span>
-                </button>
-              </div>
-
-              {reviewEntries.map((entry, idx) => {
-                const isReady = !!(entry.headline && entry.headline.trim().length > 0 && entry.text && entry.text.trim().length > 3);
-                return (
-                  <div 
-                    key={entry.id} 
-                    className={`p-5 rounded-2xl border flex flex-col gap-3.5 transition-all shadow-xs ${
-                      isReady 
-                        ? 'bg-tree-50/10 border-tree-200 hover:border-tree-300 shadow-tree-100/5' 
-                        : 'bg-sky-50/15 border-sky-200 hover:border-sky-300 shadow-sky-100/5'
-                    }`}
-                  >
-                    {/* Status Indicator Bar */}
-                    <div className="flex items-center justify-between border-b border-stone-100/80 pb-2.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                        Item #{idx + 1}
-                      </span>
-                      <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full select-none ${
-                        isReady 
-                          ? 'bg-tree-100/85 text-tree-800' 
-                          : 'bg-sky-100/85 text-sky-800'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-tree-600' : 'bg-sky-600'}`} />
-                        {isReady ? 'Ready & Verified' : 'Review Required'}
-                      </span>
+              {/* Audio Playback Preview (if audio was recorded) */}
+              {audioUrl && (
+                <div className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={toggleAudioPlayback}
+                      className="w-10 h-10 rounded-full bg-teal-600 text-white flex items-center justify-center shadow-md hover:bg-teal-700 transition-colors cursor-pointer"
+                      aria-label={isPlayingAudio ? "Pause audio" : "Play audio"}
+                    >
+                      {isPlayingAudio ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+                    </button>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-stone-800">Voice Note Preview</span>
+                      <span className="text-[11px] text-stone-500 font-medium">{formatSeconds(recordingDuration)} duration</span>
                     </div>
+                  </div>
+                  <audio 
+                    ref={audioPlayerRef} 
+                    src={audioUrl} 
+                    onEnded={() => setIsPlayingAudio(false)} 
+                    className="hidden" 
+                  />
+                  <button
+                    onClick={startRecording}
+                    className="flex items-center gap-1 text-xs font-bold text-stone-500 hover:text-teal-600 px-2 py-1 rounded-lg hover:bg-stone-200/60 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw size={14} />
+                    <span>Rerecord</span>
+                  </button>
+                </div>
+              )}
 
-                    {/* Category Pill Selector Bar */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        {categoryOptions.map(cat => {
-                          const isSelected = entry.category === cat.key;
-                          return (
-                            <button
-                              key={cat.key}
-                              type="button"
-                              onClick={() => updateEntryCategory(entry.id, cat.key)}
-                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                                isSelected
-                                  ? cat.activeColor + ' shadow-xs'
-                                  : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
-                              }`}
-                            >
-                              {cat.icon}
-                              <span>{cat.label}</span>
-                            </button>
-                          );
-                        })}
+              {/* Collapsible Spoken Verbatim Transcript */}
+              {transcript && (
+                <div className="bg-stone-50 rounded-2xl border border-stone-200 p-3 flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowRawTranscript(!showRawTranscript)}
+                    className="flex items-center justify-between w-full text-left text-xs font-bold text-stone-600 hover:text-stone-900 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <MessageSquare size={13} className="text-stone-400" />
+                      Spoken Transcript
+                    </span>
+                    {showRawTranscript ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {showRawTranscript && (
+                    <p className="text-xs text-stone-700 leading-relaxed pt-1.5 border-t border-stone-200/60 font-medium italic">
+                      &ldquo;{transcript}&rdquo;
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Classified Entries List */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">
+                    Classified Items ({reviewEntries.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={reclassifyWithAi}
+                    disabled={isClassifying}
+                    className="flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-800 disabled:opacity-50 cursor-pointer"
+                    title="Re-analyze and split into categories"
+                  >
+                    {isClassifying ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={12} className="text-teal-600" />
+                    )}
+                    <span>Re-classify with AI</span>
+                  </button>
+                </div>
+
+                {reviewEntries.map((entry, idx) => {
+                  const isReady = !!(entry.headline && entry.headline.trim().length > 0 && entry.text && entry.text.trim().length > 3);
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className={`p-5 rounded-2xl border flex flex-col gap-3.5 transition-all shadow-xs ${
+                        isReady 
+                          ? 'bg-tree-50/10 border-tree-200 hover:border-tree-300 shadow-tree-100/5' 
+                          : 'bg-sky-50/15 border-sky-200 hover:border-sky-300 shadow-sky-100/5'
+                      }`}
+                    >
+                      {/* Status Indicator Bar */}
+                      <div className="flex items-center justify-between border-b border-stone-100/80 pb-2.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                          Item #{idx + 1}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full select-none ${
+                          isReady 
+                            ? 'bg-tree-100/85 text-tree-800' 
+                            : 'bg-sky-100/85 text-sky-800'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-tree-600' : 'bg-sky-600'}`} />
+                          {isReady ? 'Ready & Verified' : 'Review Required'}
+                        </span>
                       </div>
 
-                      {/* Delete item button if more than 1 item */}
-                      {reviewEntries.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeEntry(entry.id)}
-                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
-                          title="Remove this item"
-                          aria-label="Remove item"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                      {/* Category Pill Selector Bar */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {categoryOptions.map(cat => {
+                            const isSelected = entry.category === cat.key;
+                            return (
+                              <button
+                                key={cat.key}
+                                type="button"
+                                onClick={() => updateEntryCategory(entry.id, cat.key)}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+                                  isSelected
+                                    ? cat.activeColor + ' shadow-xs'
+                                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
+                                }`}
+                              >
+                                {cat.icon}
+                                <span>{cat.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Delete item button if more than 1 item */}
+                        {reviewEntries.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeEntry(entry.id)}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                            title="Remove this item"
+                            aria-label="Remove item"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Headline & Time Bucket Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="sm:col-span-2 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-teal-500 focus-within:border-transparent">
+                          <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Headline:</span>
+                          <input 
+                            type="text"
+                            value={entry.headline || ''}
+                            onChange={(e) => updateEntryHeadline(entry.id, e.target.value)}
+                            placeholder="2-4 word subject (e.g. Doctor Visit)"
+                            className="w-full text-xs font-bold text-stone-900 outline-none bg-transparent"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2 py-1.5">
+                          <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Bucket:</span>
+                          <select
+                            value={entry.timeBucket || 'Morning'}
+                            onChange={(e) => updateEntryTimeBucket(entry.id, e.target.value as TimeBucket)}
+                            className="w-full bg-transparent text-xs font-bold text-stone-800 outline-none cursor-pointer"
+                          >
+                            <option value="Morning">🌅 Morning</option>
+                            <option value="Afternoon">☀️ Afternoon</option>
+                            <option value="Evening">🌇 Evening</option>
+                            <option value="Night">🌙 Night</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Expanded Text Input for Entry */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                          Entry Details / Notes:
+                        </label>
+                        <textarea
+                          value={entry.text}
+                          onChange={(e) => updateEntryText(entry.id, e.target.value)}
+                          placeholder="E.g., Ran for 20 minutes"
+                          rows={5}
+                          className="w-full p-3 bg-white border border-stone-200 rounded-xl text-stone-900 font-medium focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none resize-y min-h-[130px] text-sm leading-relaxed placeholder:text-stone-400"
+                        />
+                      </div>
+
+                      {/* Calories / Calories Burned Row (for Meals & Workouts) */}
+                      {entry.category === 'meal' && (
+                        <div className="flex items-center justify-between bg-orange-50/80 border border-orange-200/90 rounded-xl px-3 py-1.5 text-xs">
+                          <div className="flex items-center gap-1.5 text-orange-900 font-bold">
+                            <Flame size={14} className="text-orange-600" />
+                            <span className="text-[11px] uppercase tracking-wide">Calories Consumed:</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <input 
+                              type="number"
+                              value={entry.calories !== undefined ? entry.calories : ''}
+                              onChange={(e) => updateEntryCalories(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                              placeholder="AI estimate"
+                              className="w-20 px-2 py-0.5 bg-white border border-orange-300 rounded-lg text-xs font-bold text-orange-950 text-right outline-none focus:ring-1 focus:ring-orange-500"
+                            />
+                            <span className="text-xs font-bold text-orange-700">kcal</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {entry.category === 'workout' && (
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between bg-teal-50/80 border border-teal-200/90 rounded-xl px-3 py-1.5 text-xs">
+                            <div className="flex items-center gap-1.5 text-teal-900 font-bold">
+                              <Timer size={14} className="text-teal-600" />
+                              <span className="text-[11px] uppercase tracking-wide">Active Duration:</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="number"
+                                value={entry.activeMinutes !== undefined ? entry.activeMinutes : ''}
+                                onChange={(e) => updateEntryActiveMinutes(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                                placeholder="e.g. 20"
+                                className="w-20 px-2 py-0.5 bg-white border border-teal-300 rounded-lg text-xs font-bold text-teal-950 text-right outline-none focus:ring-1 focus:ring-teal-500"
+                              />
+                              <span className="text-xs font-bold text-teal-700">mins</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between bg-teal-50/80 border border-teal-200/90 rounded-xl px-3 py-1.5 text-xs">
+                            <div className="flex items-center gap-1.5 text-teal-900 font-bold">
+                              <Flame size={14} className="text-teal-600" />
+                              <span className="text-[11px] uppercase tracking-wide">Calories Burned:</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="number"
+                                value={entry.caloriesBurned !== undefined ? entry.caloriesBurned : ''}
+                                onChange={(e) => updateEntryCaloriesBurned(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                                placeholder="AI estimate"
+                                className="w-20 px-2 py-0.5 bg-white border border-teal-300 rounded-lg text-xs font-bold text-teal-950 text-right outline-none focus:ring-1 focus:ring-teal-500"
+                              />
+                              <span className="text-xs font-bold text-teal-700">kcal burned</span>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
+                  );
+                })}
 
-                  {/* Headline & Time Bucket Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="sm:col-span-2 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-teal-500 focus-within:border-transparent">
-                      <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Headline:</span>
-                      <input 
-                        type="text"
-                        value={entry.headline || ''}
-                        onChange={(e) => updateEntryHeadline(entry.id, e.target.value)}
-                        placeholder="2-4 word subject (e.g. Doctor Visit)"
-                        className="w-full text-xs font-bold text-stone-900 outline-none bg-transparent"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2 py-1.5">
-                      <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Bucket:</span>
-                      <select
-                        value={entry.timeBucket || 'Morning'}
-                        onChange={(e) => updateEntryTimeBucket(entry.id, e.target.value as TimeBucket)}
-                        className="w-full bg-transparent text-xs font-bold text-stone-800 outline-none cursor-pointer"
-                      >
-                        <option value="Morning">🌅 Morning</option>
-                        <option value="Afternoon">☀️ Afternoon</option>
-                        <option value="Evening">🌇 Evening</option>
-                        <option value="Night">🌙 Night</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Text Input for Entry */}
-                  <textarea
-                    value={entry.text}
-                    onChange={(e) => updateEntryText(entry.id, e.target.value)}
-                    placeholder="E.g., Ran for 20 minutes"
-                    rows={2}
-                    className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-stone-900 font-medium focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none resize-none text-sm leading-relaxed placeholder:text-stone-400"
-                  />
-
-                  {/* Calories / Calories Burned Row (for Meals & Workouts) */}
-                  {entry.category === 'meal' && (
-                    <div className="flex items-center justify-between bg-orange-50/80 border border-orange-200/90 rounded-xl px-3 py-1.5 text-xs">
-                      <div className="flex items-center gap-1.5 text-orange-900 font-bold">
-                        <Flame size={14} className="text-orange-600" />
-                        <span className="text-[11px] uppercase tracking-wide">Calories Consumed:</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <input 
-                          type="number"
-                          value={entry.calories !== undefined ? entry.calories : ''}
-                          onChange={(e) => updateEntryCalories(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                          placeholder="AI estimate"
-                          className="w-20 px-2 py-0.5 bg-white border border-orange-300 rounded-lg text-xs font-bold text-orange-950 text-right outline-none focus:ring-1 focus:ring-orange-500"
-                        />
-                        <span className="text-xs font-bold text-orange-700">kcal</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {entry.category === 'workout' && (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between bg-teal-50/80 border border-teal-200/90 rounded-xl px-3 py-1.5 text-xs">
-                        <div className="flex items-center gap-1.5 text-teal-900 font-bold">
-                          <Timer size={14} className="text-teal-600" />
-                          <span className="text-[11px] uppercase tracking-wide">Active Duration:</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <input 
-                            type="number"
-                            value={entry.activeMinutes !== undefined ? entry.activeMinutes : ''}
-                            onChange={(e) => updateEntryActiveMinutes(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                            placeholder="e.g. 20"
-                            className="w-20 px-2 py-0.5 bg-white border border-teal-300 rounded-lg text-xs font-bold text-teal-950 text-right outline-none focus:ring-1 focus:ring-teal-500"
-                          />
-                          <span className="text-xs font-bold text-teal-700">mins</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between bg-teal-50/80 border border-teal-200/90 rounded-xl px-3 py-1.5 text-xs">
-                        <div className="flex items-center gap-1.5 text-teal-900 font-bold">
-                          <Flame size={14} className="text-teal-600" />
-                          <span className="text-[11px] uppercase tracking-wide">Calories Burned:</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <input 
-                            type="number"
-                            value={entry.caloriesBurned !== undefined ? entry.caloriesBurned : ''}
-                            onChange={(e) => updateEntryCaloriesBurned(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                            placeholder="AI estimate"
-                            className="w-20 px-2 py-0.5 bg-white border border-teal-300 rounded-lg text-xs font-bold text-teal-950 text-right outline-none focus:ring-1 focus:ring-teal-500"
-                          />
-                          <span className="text-xs font-bold text-teal-700">kcal burned</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-              {/* Add item button */}
-              <button
-                type="button"
-                onClick={addEntry}
-                className="py-2 px-3 border border-dashed border-stone-300 hover:border-teal-500 text-stone-600 hover:text-teal-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 bg-stone-50/50 hover:bg-teal-50/40 transition-colors"
-              >
-                <Plus size={14} />
-                <span>Add another item</span>
-              </button>
+                {/* Add item button */}
+                <button
+                  type="button"
+                  onClick={addEntry}
+                  className="py-2 px-3 border border-dashed border-stone-300 hover:border-teal-500 text-stone-600 hover:text-teal-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 bg-stone-50/50 hover:bg-teal-50/40 transition-colors cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Add another item</span>
+                </button>
+              </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-2">
+            {/* Bottom Actions - Pinned above screen edge */}
+            <div className="p-4 sm:p-5 border-t border-stone-100 bg-stone-50/70 backdrop-blur-xs rounded-b-3xl shrink-0 flex gap-3">
               <button
                 type="button"
                 onClick={cancelRecording}
-                className="flex-1 py-3.5 border border-stone-200 text-stone-600 font-bold rounded-2xl hover:bg-stone-50 transition-colors text-sm"
+                className="flex-1 py-3.5 border border-stone-200 text-stone-600 font-bold rounded-xl bg-white hover:bg-stone-50 transition-colors text-sm cursor-pointer"
               >
                 Discard
               </button>
@@ -1313,7 +1329,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
                 type="button"
                 onClick={saveToHealthLog}
                 disabled={reviewEntries.every(e => !e.text.trim())}
-                className="flex-[2] py-3.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 active:scale-98 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-all text-sm"
+                className="flex-[2] py-3.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 active:scale-98 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 transition-all text-sm cursor-pointer"
               >
                 <Check size={18} strokeWidth={2.5} />
                 <span>

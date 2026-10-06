@@ -474,7 +474,13 @@ export default function App() {
             user={user}
           />
         )}
-        {activeTab === 'profile' && <HealthProfile onBack={() => setActiveTab('coaching')} driveState={driveState} />}
+        {activeTab === 'profile' && (
+          <HealthProfile 
+            onBack={() => setActiveTab('coaching')} 
+            driveState={driveState} 
+            onFactsUpdated={() => setLogsRefreshTrigger(prev => prev + 1)}
+          />
+        )}
         {activeTab === 'family' && (
           <Family 
             driveState={driveState} 
@@ -539,8 +545,8 @@ export default function App() {
           </div>
         )}
         
-        {/* Floating Action Buttons (Left: Upload File, Right: Add Voice Entry) */}
-        {!isIntakeNeeded && (activeTab === 'home' || activeTab === 'coaching') && (
+        {/* Floating Action Buttons (Left: Upload File, Right: Add Voice Entry) - Home tab only */}
+        {!isIntakeNeeded && activeTab === 'home' && (
           <div className="fixed bottom-20 left-0 right-0 max-w-md mx-auto px-4 flex items-center justify-between pointer-events-none z-30">
             <div className="pointer-events-auto">
               <HealthDocUploader 

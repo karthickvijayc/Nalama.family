@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Upload, 
   FileText, 
@@ -724,6 +725,11 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
     </div>
   );
 
+  const renderPortal = (children: React.ReactNode) => {
+    if (typeof document === 'undefined') return null;
+    return createPortal(children, document.body);
+  };
+
   return (
     <>
       {/* Floating Left Trigger Button (when floating mode is active and idle) */}
@@ -785,9 +791,9 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       )}
 
       {/* Floating Modal Popup when triggered */}
-      {floating && isModalOpen && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+      {floating && isModalOpen && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-3 sm:p-4 pb-6 pb-safe">
+          <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-stone-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-tree-50 border border-tree-200/80 flex items-center justify-center text-tree-700 shadow-2xs">
@@ -853,8 +859,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       )}
 
       {/* Full Screen Processing State Overlays */}
-      {uploaderState === 'analyzing' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'analyzing' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-tree-50 text-tree-600 flex items-center justify-center">
               <Loader2 size={36} className="animate-spin" />
@@ -867,8 +873,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         </div>
       )}
 
-      {uploaderState === 'saving' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'saving' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
               <Loader2 size={36} className="animate-spin" />
@@ -881,8 +887,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         </div>
       )}
 
-      {uploaderState === 'extracting' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'extracting' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <Sparkles size={36} className="animate-pulse" />
@@ -895,8 +901,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         </div>
       )}
 
-      {uploaderState === 'generating_digest' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'generating_digest' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center animate-pulse">
               <Sparkles size={36} />
@@ -909,8 +915,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         </div>
       )}
 
-      {uploaderState === 'success' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'success' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center">
               <Check size={36} strokeWidth={3} />
@@ -923,8 +929,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         </div>
       )}
 
-      {uploaderState === 'extraction_error' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      {uploaderState === 'extraction_error' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-safe">
           <div className="bg-white max-w-sm w-full rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-5">
             <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
               <AlertCircle size={36} />
@@ -960,242 +966,252 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       )}
 
       {/* Review & Edit Modal (Identical, visually pristine, cohesive review modal) */}
-      {uploaderState === 'review' && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white max-w-lg w-full rounded-3xl p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+      {uploaderState === 'review' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-3 sm:p-4 pb-6 pb-safe">
+          <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 border border-stone-200/80">
             
-            {/* Header */}
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Sparkles size={20} className="text-tree-600 animate-pulse" />
-                  <h3 className="text-xl font-bold text-stone-900">
-                    Review Extracted Entries
-                  </h3>
-                  {reviewEntries.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-tree-100 text-tree-800">
-                      {reviewEntries.length} Items Detected
-                    </span>
-                  )}
+            {/* Pinned Header */}
+            <div className="p-5 sm:p-6 pb-3.5 border-b border-stone-100 shrink-0">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={20} className="text-tree-600 animate-pulse" />
+                    <h3 className="text-xl font-bold text-stone-900">
+                      Review Extracted Entries
+                    </h3>
+                    {reviewEntries.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-tree-100 text-tree-800">
+                        {reviewEntries.length} Items Detected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-500 font-medium mt-0.5">
+                    Gemini analyzed your document and structured it. Verify and refine the items before logging.
+                  </p>
                 </div>
-                <p className="text-xs text-stone-500 font-medium mt-0.5">
-                  Gemini analyzed your document and structured it. Verify and refine the items before logging.
-                </p>
-              </div>
-              <button 
-                onClick={closeUploaderModal}
-                className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
-                aria-label="Close"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Error Display */}
-            {errorMessage && (
-              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium flex items-start gap-2">
-                <AlertCircle size={16} className="shrink-0 mt-0.5 text-amber-600" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* Classified Entries List */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                  Extracted Items ({reviewEntries.length})
-                </label>
-                <button
-                  type="button"
-                  onClick={reclassifyWithAi}
-                  disabled={isClassifying}
-                  className="flex items-center gap-1 text-xs font-bold text-tree-700 hover:text-tree-800 disabled:opacity-50"
-                  title="Re-analyze and split into categories"
+                <button 
+                  onClick={closeUploaderModal}
+                  className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
+                  aria-label="Close"
                 >
-                  {isClassifying ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={12} className="text-tree-600" />
-                  )}
-                  <span>Re-classify with AI</span>
+                  <X size={20} />
                 </button>
               </div>
-
-              {reviewEntries.map((entry, idx) => {
-                const isReady = !!(entry.headline && entry.headline.trim().length > 0 && entry.text && entry.text.trim().length > 3);
-                return (
-                  <div 
-                    key={entry.id} 
-                    className={`p-5 rounded-2xl border flex flex-col gap-3.5 transition-all shadow-xs ${
-                      isReady 
-                        ? 'bg-tree-50/10 border-tree-200 hover:border-tree-300 shadow-tree-100/5' 
-                        : 'bg-sky-50/15 border-sky-200 hover:border-sky-300 shadow-sky-100/5'
-                    }`}
-                  >
-                    {/* Status Indicator Bar */}
-                    <div className="flex items-center justify-between border-b border-stone-100/80 pb-2.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                        Item #{idx + 1}
-                      </span>
-                      <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full select-none ${
-                        isReady 
-                          ? 'bg-tree-100/85 text-tree-800' 
-                          : 'bg-sky-100/85 text-sky-800'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-tree-600' : 'bg-sky-600'}`} />
-                        {isReady ? 'Ready & Verified' : 'Review Required'}
-                      </span>
-                    </div>
-
-                    {/* Category Pill Selector Bar */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        {categoryOptions.map(cat => {
-                          const isSelected = entry.category === cat.key;
-                          return (
-                            <button
-                              key={cat.key}
-                              type="button"
-                              onClick={() => updateEntryCategory(entry.id, cat.key)}
-                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                                isSelected
-                                  ? cat.activeColor + ' shadow-xs'
-                                  : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
-                              }`}
-                            >
-                              {cat.icon}
-                              <span>{cat.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Delete item button if more than 1 item */}
-                      {reviewEntries.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeReviewEntry(entry.id)}
-                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
-                          title="Remove this item"
-                          aria-label="Remove item"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-
-                  {/* Headline, Date & Time Bucket Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-                    <div className="sm:col-span-3 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-tree-500 focus-within:border-transparent">
-                      <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Headline:</span>
-                      <input 
-                        type="text"
-                        value={entry.headline || ''}
-                        onChange={(e) => updateEntryHeadline(entry.id, e.target.value)}
-                        placeholder="2-4 word subject (e.g. Health Doc Analysis)"
-                        className="w-full text-xs font-bold text-stone-900 outline-none bg-transparent"
-                      />
-                    </div>
-                    <div className="sm:col-span-2 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2 py-1.5 focus-within:ring-2 focus-within:ring-tree-500 focus-within:border-transparent">
-                      <Calendar size={13} className="text-tree-600 shrink-0" />
-                      <input 
-                        type="date"
-                        value={entry.date || defaultDate}
-                        onChange={(e) => updateEntryDate(entry.id, e.target.value)}
-                        className="w-full bg-transparent text-xs font-bold text-stone-800 outline-none cursor-pointer"
-                        title="Date for this entry"
-                        aria-label="Entry Date"
-                      />
-                    </div>
-                    <div className="sm:col-span-1 flex items-center gap-1 bg-white border border-stone-200 rounded-xl px-1.5 py-1.5">
-                      <select
-                        value={entry.timeBucket || 'Morning'}
-                        onChange={(e) => updateEntryTimeBucket(entry.id, e.target.value as TimeBucket)}
-                        className="w-full bg-transparent text-[11px] font-bold text-stone-800 outline-none cursor-pointer"
-                        aria-label="Time Bucket"
-                      >
-                        <option value="Morning">🌅 Morn</option>
-                        <option value="Afternoon">☀️ Noon</option>
-                        <option value="Evening">🌇 Eve</option>
-                        <option value="Night">🌙 Night</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Text Input for Entry */}
-                  <textarea
-                    value={entry.text}
-                    onChange={(e) => updateEntryText(entry.id, e.target.value)}
-                    placeholder="E.g., Medical report says BP normal"
-                    rows={2}
-                    className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-stone-900 font-medium focus:ring-2 focus:ring-tree-500 focus:border-transparent outline-none resize-none text-sm leading-relaxed placeholder:text-stone-400"
-                  />
-
-                  {/* Calories / Active Minutes fields if appropriate */}
-                  <div className="grid grid-cols-3 gap-2">
-                    {entry.category === 'meal' && (
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase">Est. Calories:</span>
-                        <input
-                          type="number"
-                          value={entry.calories || ''}
-                          onChange={(e) => updateEntryCalories(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                          placeholder="e.g. 350 kcal"
-                          className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
-                        />
-                      </div>
-                    )}
-                    {entry.category === 'workout' && (
-                      <>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[10px] font-bold text-stone-400 uppercase">Active Mins:</span>
-                          <input
-                            type="number"
-                            value={entry.activeMinutes || ''}
-                            onChange={(e) => updateEntryActiveMinutes(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                            placeholder="e.g. 30"
-                            className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[10px] font-bold text-stone-400 uppercase">Burned:</span>
-                          <input
-                            type="number"
-                            value={entry.caloriesBurned || ''}
-                            onChange={(e) => updateEntryCaloriesBurned(entry.id, e.target.value ? Number(e.target.value) : undefined)}
-                            placeholder="e.g. 150 kcal"
-                            className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-              {/* Add New Entry button */}
-              <button
-                type="button"
-                onClick={addReviewEntry}
-                className="w-full py-2.5 bg-stone-100 hover:bg-stone-200/80 border border-dashed border-stone-300 text-stone-600 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
-              >
-                <Plus size={14} />
-                <span>Add Another Entry Item</span>
-              </button>
             </div>
 
-            {/* Bottom Actions */}
-            <div className="flex gap-3 mt-2 border-t border-stone-100 pt-4">
+            {/* Scrollable Content Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 flex flex-col gap-4 min-h-0">
+              {/* Error Display */}
+              {errorMessage && (
+                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 mt-0.5 text-amber-600" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Classified Entries List */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">
+                    Extracted Items ({reviewEntries.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={reclassifyWithAi}
+                    disabled={isClassifying}
+                    className="flex items-center gap-1 text-xs font-bold text-tree-700 hover:text-tree-800 disabled:opacity-50 cursor-pointer"
+                    title="Re-analyze and split into categories"
+                  >
+                    {isClassifying ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={12} className="text-tree-600" />
+                    )}
+                    <span>Re-classify with AI</span>
+                  </button>
+                </div>
+
+                {reviewEntries.map((entry, idx) => {
+                  const isReady = !!(entry.headline && entry.headline.trim().length > 0 && entry.text && entry.text.trim().length > 3);
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className={`p-5 rounded-2xl border flex flex-col gap-3.5 transition-all shadow-xs ${
+                        isReady 
+                          ? 'bg-tree-50/10 border-tree-200 hover:border-tree-300 shadow-tree-100/5' 
+                          : 'bg-sky-50/15 border-sky-200 hover:border-sky-300 shadow-sky-100/5'
+                      }`}
+                    >
+                      {/* Status Indicator Bar */}
+                      <div className="flex items-center justify-between border-b border-stone-100/80 pb-2.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                          Item #{idx + 1}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full select-none ${
+                          isReady 
+                            ? 'bg-tree-100/85 text-tree-800' 
+                            : 'bg-sky-100/85 text-sky-800'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isReady ? 'bg-tree-600' : 'bg-sky-600'}`} />
+                          {isReady ? 'Ready & Verified' : 'Review Required'}
+                        </span>
+                      </div>
+
+                      {/* Category Pill Selector Bar */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {categoryOptions.map(cat => {
+                            const isSelected = entry.category === cat.key;
+                            return (
+                              <button
+                                key={cat.key}
+                                type="button"
+                                onClick={() => updateEntryCategory(entry.id, cat.key)}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+                                  isSelected
+                                    ? cat.activeColor + ' shadow-xs'
+                                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
+                                }`}
+                              >
+                                {cat.icon}
+                                <span>{cat.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Delete item button if more than 1 item */}
+                        {reviewEntries.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeReviewEntry(entry.id)}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                            title="Remove this item"
+                            aria-label="Remove item"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Headline, Date & Time Bucket Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                        <div className="sm:col-span-3 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-tree-500 focus-within:border-transparent">
+                          <span className="text-[10px] uppercase font-bold text-stone-400 shrink-0">Headline:</span>
+                          <input 
+                            type="text"
+                            value={entry.headline || ''}
+                            onChange={(e) => updateEntryHeadline(entry.id, e.target.value)}
+                            placeholder="2-4 word subject (e.g. Health Doc Analysis)"
+                            className="w-full text-xs font-bold text-stone-900 outline-none bg-transparent"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2 py-1.5 focus-within:ring-2 focus-within:ring-tree-500 focus-within:border-transparent">
+                          <Calendar size={13} className="text-tree-600 shrink-0" />
+                          <input 
+                            type="date"
+                            value={entry.date || defaultDate}
+                            onChange={(e) => updateEntryDate(entry.id, e.target.value)}
+                            className="w-full bg-transparent text-xs font-bold text-stone-800 outline-none cursor-pointer"
+                            title="Date for this entry"
+                            aria-label="Entry Date"
+                          />
+                        </div>
+                        <div className="sm:col-span-1 flex items-center gap-1 bg-white border border-stone-200 rounded-xl px-1.5 py-1.5">
+                          <select
+                            value={entry.timeBucket || 'Morning'}
+                            onChange={(e) => updateEntryTimeBucket(entry.id, e.target.value as TimeBucket)}
+                            className="w-full bg-transparent text-[11px] font-bold text-stone-800 outline-none cursor-pointer"
+                            aria-label="Time Bucket"
+                          >
+                            <option value="Morning">🌅 Morn</option>
+                            <option value="Afternoon">☀️ Noon</option>
+                            <option value="Evening">🌇 Eve</option>
+                            <option value="Night">🌙 Night</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Expanded Text Input for Entry */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                          Entry Details / Extracted Content:
+                        </label>
+                        <textarea
+                          value={entry.text}
+                          onChange={(e) => updateEntryText(entry.id, e.target.value)}
+                          placeholder="E.g., Medical report says BP normal"
+                          rows={5}
+                          className="w-full p-3 bg-white border border-stone-200 rounded-xl text-stone-900 font-medium focus:ring-2 focus:ring-tree-500 focus:border-transparent outline-none resize-y min-h-[130px] text-sm leading-relaxed placeholder:text-stone-400"
+                        />
+                      </div>
+
+                      {/* Calories / Active Minutes fields if appropriate */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {entry.category === 'meal' && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-bold text-stone-400 uppercase">Est. Calories:</span>
+                            <input
+                              type="number"
+                              value={entry.calories || ''}
+                              onChange={(e) => updateEntryCalories(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                              placeholder="e.g. 350 kcal"
+                              className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
+                            />
+                          </div>
+                        )}
+                        {entry.category === 'workout' && (
+                          <>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-bold text-stone-400 uppercase">Active Mins:</span>
+                              <input
+                                type="number"
+                                value={entry.activeMinutes || ''}
+                                onChange={(e) => updateEntryActiveMinutes(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                                placeholder="e.g. 30"
+                                className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-bold text-stone-400 uppercase">Burned:</span>
+                              <input
+                                type="number"
+                                value={entry.caloriesBurned || ''}
+                                onChange={(e) => updateEntryCaloriesBurned(entry.id, e.target.value ? Number(e.target.value) : undefined)}
+                                placeholder="e.g. 150 kcal"
+                                className="w-full text-xs font-bold text-stone-900 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-tree-500"
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add New Entry button */}
+                <button
+                  type="button"
+                  onClick={addReviewEntry}
+                  className="w-full py-2.5 bg-stone-100 hover:bg-stone-200/80 border border-dashed border-stone-300 text-stone-600 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Add Another Entry Item</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Actions - Pinned above screen edge */}
+            <div className="p-4 sm:p-5 border-t border-stone-100 bg-stone-50/70 backdrop-blur-xs rounded-b-3xl shrink-0 flex gap-3">
               <button
                 onClick={closeUploaderModal}
-                className="flex-1 py-3.5 text-stone-600 font-bold bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors"
+                className="flex-1 py-3.5 text-stone-600 font-bold bg-white hover:bg-stone-100 border border-stone-200 rounded-xl transition-colors cursor-pointer"
               >
                 Discard
               </button>
               <button
                 onClick={saveToHealthLog}
-                className="flex-[2] py-3.5 bg-tree-700 hover:bg-tree-800 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-tree-900/10 transition-all active:scale-98"
+                className="flex-[2] py-3.5 bg-tree-700 hover:bg-tree-800 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-tree-900/10 transition-all active:scale-98 cursor-pointer"
               >
                 <Check size={18} strokeWidth={2.5} />
                 <span>Save to Health Log</span>

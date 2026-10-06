@@ -248,23 +248,25 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
                 if (!isNaN(exp) && exp < Date.now()) return;
               }
 
-              // Only include if explicit daily frequency, or routine/medication category without non-daily frequency
+              // Only include facts explicitly categorized as a routine or ongoing medication
+              if (f.category !== 'routine' && f.category !== 'medication') return;
+
+              // Only include if explicit daily frequency or default daily
               if (f.frequency && f.frequency !== 'daily') return;
 
               const lower = rawText.toLowerCase();
-              const isRoutineCategory = f.category === 'routine' || f.category === 'medication';
-              const hasRoutineKeyword = lower.includes('routine') || lower.includes('daily') || lower.includes('medication') || lower.includes('every ') || lower.includes('walk') || lower.includes('morning') || lower.includes('evening') || lower.includes('night') || lower.includes('habit');
 
-              if (!isRoutineCategory && !hasRoutineKeyword) return;
+              // Guard against auto-extracted single meals or one-off logs that were misclassified as routines
+              if (f.source === 'gemini_extraction') {
+                const isOneOffFood = lower.startsWith('consumed ') || lower.startsWith('consumes ') || lower.startsWith('ate ') || lower.startsWith('had ') || lower.includes('seed bowl') || lower.includes('protein powder') || lower.includes('protein scoop') || lower.includes('breakfast entry') || lower.includes('lunch entry') || lower.includes('dinner entry');
+                const hasExplicitRoutineKeyword = lower.includes('daily routine') || lower.includes('every day') || lower.includes('daily habit');
+                if (isOneOffFood && !hasExplicitRoutineKeyword) return;
+              }
 
               // Determine category
               let cat: ActivityCategory = 'routine';
-              if (f.category === 'medication' || lower.includes('medication') || lower.includes('takes ') || /\b\d+\s*mg\b/i.test(lower)) {
+              if (f.category === 'medication') {
                 cat = 'medication';
-              } else if (f.category === 'workout' || lower.includes('workout') || lower.includes('gym') || lower.includes('walk') || lower.includes('exercise')) {
-                cat = 'workout';
-              } else if (f.category === 'meal' || f.category === 'diet' || lower.includes('water') || lower.includes('breakfast') || lower.includes('lunch') || lower.includes('dinner')) {
-                cat = 'meal';
               }
 
               // Determine Title and Subtitle

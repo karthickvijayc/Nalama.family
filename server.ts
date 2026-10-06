@@ -745,28 +745,33 @@ New Health & Workout Log Entries:
 ${JSON.stringify(incomingLogs, null, 2)}
 
 Instructions:
-1. Identify any new, relevant medical, diet, fitness, resistance training, sleep recovery, or routine facts from the log entries. Use the user's baseline profile as reference context.
+1. Identify any new, relevant medical, diet, fitness, resistance training, or sleep recovery facts from the log entries. Use the user's baseline profile as reference context.
 2. Specifically extract and maintain:
-   - **Resistance & Strength Benchmarks / PRs**: e.g., "Dumbbell Bench Press top set: 24kg x 8 reps", "Squat workout volume: 4,200 kg", "Trains Upper Body 3x per week".
+   - **Resistance & Strength Benchmarks / PRs**: e.g., "Dumbbell Bench Press top set: 24kg x 8 reps", "Squat workout volume: 4,200 kg".
    - **Cardiovascular & Vitals Baselines**: e.g., "Resting heart rate averages 58-62 bpm", "Blood pressure recorded at 118/76 mmHg", "Estimated VO2 Max: 43 ml/kg/min".
    - **Sleep Architecture & Recovery Trends**: e.g., "Averages 7.5 hrs sleep with 90 mins deep sleep", "Average HRV: 52 ms".
    - **Body Composition Updates**: e.g., "Body weight: 74.2 kg, body fat: 17.5%".
    - **Medical & Medication Adherence**: e.g., "Takes Metformin 500mg daily after breakfast".
-   - **Routines**: e.g., "Gym workout routine: Push/Pull/Legs split".
-3. For each identified fact:
+   - **Dietary & Nutritional Preferences**: e.g., "Prefers high-protein meals", "Follows vegetarian diet".
+3. STRICT ROUTINE EXTRACTION RULES:
+   - NEVER create a "routine" category fact from a single log entry or ordinary meal/workout event! A single log entry (e.g., eating breakfast, eating a seed bowl, drinking a protein shake, or doing a workout) is an isolated historical log, NOT an ongoing daily recurring routine.
+   - Routines must NEVER be directly auto-created from ordinary log entries. Routine habit recommendations belong in Coaching "Suggested Routines" where the user explicitly reviews and accepts them.
+   - The ONLY time a fact should have category: "routine" is when the user EXPLICITLY states in their log that it is an established recurring routine (e.g., "My daily routine is...", "I do this every day at 7 AM").
+   - If an existing fact in Current Health Profile Facts is a one-off food or meal that was previously misclassified as a "routine" (e.g., "Consumes a morning seed bowl", "Consumes one scoop of protein powder"), reclassify its category to "diet" or remove it.
+4. For each identified fact:
    - If it represents new information, ADD a new fact object.
    - If it updates or supersedes an existing fact (e.g., a new PR or body weight replaces an older record of the same exercise or metric), UPDATE the existing fact OR replace it.
    - If a fact implies an existing condition or temporary injury is resolved, update or remove it.
-4. Fact Object Schema:
+5. Fact Object Schema:
    - "id": A unique string (e.g., "fact-" + random chars). If updating an existing fact, keep the existing ID.
-   - "category": "medical", "diet", "fitness", or "routine".
+   - "category": "medical", "diet", "fitness", or "routine". (Use "routine" ONLY for explicit user-defined recurring routines, never for meals or one-off logs).
    - "text": A concise, objective summary of the fact.
    - "source": Set to "gemini_extraction".
    - "addedAt": ISO date string.
    - "expiresAt": ISO date string or null. (Use null unless it's a temporary condition like acute soreness or cold).
    - "frequency": (Optional, for routines only) "daily", "weekly", or "specific_days".
    - "timeBucket": (Optional, for routines only) "Morning", "Afternoon", "Evening", or "Night".
-5. Return ONLY the final, complete, updated JSON array of facts. Do not wrap in markdown \`\`\`json blocks. Do not add any conversational text. ONLY output the raw JSON array.`;
+6. Return ONLY the final, complete, updated JSON array of facts. Do not wrap in markdown \`\`\`json blocks. Do not add any conversational text. ONLY output the raw JSON array.`;
 
       const result = await callGeminiWithFallback({
         userApiKey,
