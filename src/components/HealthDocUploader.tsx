@@ -112,9 +112,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
   useWakeLock(isProcessingDoc, 'health_doc_processing');
 
   // Close upload/analysis modal on Android back button/swipe
-  useModalBackHandler(isModalOpen, () => {
-    setIsModalOpen(false);
-    setUploaderState('idle');
+  useModalBackHandler(isModalOpen || uploaderState !== 'idle', () => {
+    closeUploaderModal();
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reviewEntries, setReviewEntries] = useState<ReviewEntryItem[]>([]);
@@ -212,6 +211,8 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       return;
     }
 
+    // Auto-close the initial upload popup so it does not linger behind the analysis/review modal
+    setIsModalOpen(false);
     setUploaderState('analyzing');
     setErrorMessage(null);
 
@@ -420,11 +421,12 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
       }
 
       setUploaderState('success');
+      setIsModalOpen(false);
       setSelectedFiles([]);
       if (onLogSaved) onLogSaved();
 
       setTimeout(() => {
-        setUploaderState('idle');
+        closeUploaderModal();
       }, 1500);
 
     } catch (err: any) {
@@ -602,12 +604,16 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
   const openUploaderModal = () => {
     setIsModalOpen(true);
     setErrorMessage(null);
+    setShowHoldHelp(false);
   };
 
   const closeUploaderModal = () => {
     setIsModalOpen(false);
+    setUploaderState('idle');
     setSelectedFiles([]);
+    setReviewEntries([]);
     setErrorMessage(null);
+    setShowHoldHelp(false);
   };
 
   // Drag & drop dropzone JSX
@@ -927,7 +933,7 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
             <div className="flex gap-3 w-full">
               <button
                 type="button"
-                onClick={() => setUploaderState('idle')}
+                onClick={closeUploaderModal}
                 className="flex-1 py-3 border border-stone-200 text-stone-600 font-bold rounded-xl hover:bg-stone-50 transition-colors"
               >
                 Dismiss
@@ -972,7 +978,7 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
                 </p>
               </div>
               <button 
-                onClick={() => setUploaderState('idle')}
+                onClick={closeUploaderModal}
                 className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
                 aria-label="Close"
               >
@@ -1177,7 +1183,7 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
             {/* Bottom Actions */}
             <div className="flex gap-3 mt-2 border-t border-stone-100 pt-4">
               <button
-                onClick={() => setUploaderState('idle')}
+                onClick={closeUploaderModal}
                 className="flex-1 py-3.5 text-stone-600 font-bold bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors"
               >
                 Discard

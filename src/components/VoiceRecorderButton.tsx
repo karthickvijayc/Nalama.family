@@ -107,7 +107,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
   useWakeLock(isProcessingVoice, 'voice_processing');
 
   // Close voice memo modal on Android back button/swipe
-  useModalBackHandler(modalState !== 'idle', () => setModalState('idle'));
+  useModalBackHandler(modalState !== 'idle', () => cancelRecording());
 
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcript, setTranscript] = useState('');
@@ -152,6 +152,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
   }, [audioUrl]);
 
   const startRecording = async () => {
+    setShowHoldHelp(false);
     setErrorMessage(null);
     setTranscript('');
     setReviewEntries([]);
@@ -395,11 +396,15 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
     }
+    setShowHoldHelp(false);
+    setTranscript('');
+    setReviewEntries([]);
     setModalState('idle');
     setErrorMessage(null);
   };
 
   const openManualEntry = () => {
+    setShowHoldHelp(false);
     setErrorMessage(null);
     setTranscript('');
     setAudioUrl(null);
@@ -648,6 +653,10 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
           URL.revokeObjectURL(audioUrl);
           setAudioUrl(null);
         }
+        setShowHoldHelp(false);
+        setTranscript('');
+        setReviewEntries([]);
+        setErrorMessage(null);
       }, 1500);
 
     } catch (err: any) {

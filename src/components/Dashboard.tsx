@@ -31,7 +31,8 @@ import {
   FileText,
   Quote,
   Scale,
-  TrendingUp
+  TrendingUp,
+  Clock
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket, TrendMetricType } from '../types';
@@ -235,33 +236,107 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         if (driveState.contextFileId) {
           const context = await readJsonFile(driveState.token, driveState.contextFileId);
           if (context && Array.isArray(context.facts)) {
-            const routineFacts = context.facts.filter((f: any) => 
-              f.category === 'routine' || 
-              f.category === 'medication' || 
-              f.key?.toLowerCase().includes('routine') || 
-              f.key?.toLowerCase().includes('walk') || 
-              f.key?.toLowerCase().includes('medication')
-            );
-            if (routineFacts.length > 0) {
-              const mappedRoutines: ActivityEntry[] = routineFacts.map((f: any, idx: number) => {
-                const timeStr = f.value?.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)?)\b/i)?.[1] || '08:00 AM';
-                return {
-                  id: `fact-${f.id || idx}`,
-                  time: timeStr,
-                  category: (f.category === 'medication' ? 'medication' : f.category === 'workout' ? 'workout' : f.category === 'meal' ? 'meal' : 'routine') as ActivityCategory,
-                  title: f.key ? f.key.charAt(0).toUpperCase() + f.key.slice(1).replace(/_/g, ' ') : 'Daily Activity',
-                  subtitle: f.value || '',
-                  status: 'pending' as const,
-                  timeBucket: inferTimeBucketFromTime(timeStr),
-                  dateKey: 'today',
-                  dateLabel: 'Today',
-                  dayName: 'Today'
-                };
+            const mappedRoutines: ActivityEntry[] = [];
+            context.facts.forEach((f: any, idx: number) => {
+              const rawText = (f.text || f.value || f.key || '').trim();
+              // Ignore empty facts
+              if (!rawText) return;
+
+              // Ignore expired facts
+              if (f.expiresAt) {
+                const exp = new Date(f.expiresAt).getTime();
+                if (!isNaN(exp) && exp < Date.now()) return;
+              }
+
+              // Only include if explicit daily frequency, or routine/medication category without non-daily frequency
+              if (f.frequency && f.frequency !== 'daily') return;
+
+              const lower = rawText.toLowerCase();
+              const isRoutineCategory = f.category === 'routine' || f.category === 'medication';
+              const hasRoutineKeyword = lower.includes('routine') || lower.includes('daily') || lower.includes('medication') || lower.includes('every ') || lower.includes('walk') || lower.includes('morning') || lower.includes('evening') || lower.includes('night') || lower.includes('habit');
+
+              if (!isRoutineCategory && !hasRoutineKeyword) return;
+
+              // Determine category
+              let cat: ActivityCategory = 'routine';
+              if (f.category === 'medication' || lower.includes('medication') || lower.includes('takes ') || /\b\d+\s*mg\b/i.test(lower)) {
+                cat = 'medication';
+              } else if (f.category === 'workout' || lower.includes('workout') || lower.includes('gym') || lower.includes('walk') || lower.includes('exercise')) {
+                cat = 'workout';
+              } else if (f.category === 'meal' || f.category === 'diet' || lower.includes('water') || lower.includes('breakfast') || lower.includes('lunch') || lower.includes('dinner')) {
+                cat = 'meal';
+              }
+
+              // Determine Title and Subtitle
+              let title = '';
+              let subtitle = rawText;
+
+              if (f.headline && typeof f.headline === 'string' && f.headline.trim()) {
+                title = f.headline.trim();
+              } else if (f.key && typeof f.key === 'string' && f.key.trim()) {
+                title = f.key.charAt(0).toUpperCase() + f.key.slice(1).replace(/_/g, ' ');
+              } else if (rawText.includes(':')) {
+                const parts = rawText.split(':');
+                const head = parts[0].trim();
+                const rest = parts.slice(1).join(':').trim();
+                if (head.length > 0 && head.length <= 40) {
+                  title = head;
+                  subtitle = rest || rawText;
+                }
+              }
+
+              if (!title) {
+                const words = rawText.split(/\s+/);
+                if (words.length <= 4) {
+                  title = rawText;
+                  subtitle = '';
+                } else {
+                  title = words.slice(0, 4).join(' ');
+                  subtitle = rawText;
+                }
+              }
+              title = title.charAt(0).toUpperCase() + title.slice(1);
+
+              // Determine Time and TimeBucket
+              let timeStr = (f.value || rawText).match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)?)\b/i)?.[1];
+              let timeBucket: TimeBucket = f.timeBucket;
+
+              if (!timeStr) {
+                if (timeBucket === 'Morning' || lower.includes('morning') || lower.includes('breakfast')) {
+                  timeStr = '08:00 AM';
+                  timeBucket = 'Morning';
+                } else if (timeBucket === 'Afternoon' || lower.includes('afternoon') || lower.includes('lunch')) {
+                  timeStr = '01:00 PM';
+                  timeBucket = 'Afternoon';
+                } else if (timeBucket === 'Evening' || lower.includes('evening') || lower.includes('dinner')) {
+                  timeStr = '06:00 PM';
+                  timeBucket = 'Evening';
+                } else if (timeBucket === 'Night' || lower.includes('night') || lower.includes('bedtime') || lower.includes('sleep')) {
+                  timeStr = '09:00 PM';
+                  timeBucket = 'Night';
+                } else {
+                  timeStr = '08:00 AM';
+                  timeBucket = 'Morning';
+                }
+              } else if (!timeBucket) {
+                timeBucket = inferTimeBucketFromTime(timeStr);
+              }
+
+              mappedRoutines.push({
+                id: `fact-${f.id || idx}`,
+                time: timeStr,
+                category: cat,
+                title,
+                subtitle,
+                status: 'pending' as const,
+                timeBucket,
+                dateKey: 'today',
+                dateLabel: 'Today',
+                dayName: 'Today',
+                rawTranscript: rawText
               });
-              setRoutineActivities(mappedRoutines);
-            } else {
-              setRoutineActivities([]);
-            }
+            });
+            setRoutineActivities(mappedRoutines);
           }
         }
 
@@ -880,6 +955,13 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
             active={selectedFilter === 'all'} 
             onClick={() => setSelectedFilter('all')} 
           />
+          {routineActivities.length > 0 && (
+            <FilterChip 
+              label={`Routines (${routineActivities.length})`} 
+              active={selectedFilter === 'routine'} 
+              onClick={() => setSelectedFilter('routine')} 
+            />
+          )}
           <FilterChip 
             label="Workouts" 
             active={selectedFilter === 'workout'} 
@@ -1312,12 +1394,14 @@ function ActivityDetailModal({
               activity.category === 'meal' ? 'bg-amber-100 text-amber-700' : 
               activity.category === 'medication' ? 'bg-rose-100 text-rose-700' : 
               activity.category === 'event' ? 'bg-canopy-100 text-canopy-800' : 
+              activity.category === 'routine' ? 'bg-blue-100 text-blue-700' :
               'bg-stone-200 text-stone-700'
             } flex-shrink-0 shadow-2xs mt-0.5`}>
               {activity.category === 'workout' && <Dumbbell size={22} />}
               {activity.category === 'meal' && <Utensils size={22} />}
               {activity.category === 'medication' && <Pill size={22} />}
               {activity.category === 'event' && <HeartPulse size={22} />}
+              {activity.category === 'routine' && <Clock size={22} />}
               {activity.category === 'general' && <MessageSquare size={22} />}
             </div>
             <div className="min-w-0">
@@ -1547,6 +1631,13 @@ function ActivityRow({
           bgColor: 'bg-canopy-50',
           badgeText: 'Health Event',
           badgeColor: 'text-canopy-800 bg-canopy-100/80',
+        };
+      case 'routine':
+        return {
+          icon: <Clock size={20} className="text-blue-600" />,
+          bgColor: 'bg-blue-50',
+          badgeText: 'Daily Routine',
+          badgeColor: 'text-blue-700 bg-blue-50/80',
         };
       case 'general':
       default:
