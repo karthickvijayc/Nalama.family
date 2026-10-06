@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
-import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
+import { getGeminiApiKeyHeader, formatAiErrorMessage } from '../lib/geminiApiKey';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
 import { useModalBackHandler } from '../lib/backNavigation';
@@ -305,7 +305,7 @@ export default function HealthDocUploader({ driveState, onLogSaved, userProfile,
         errorCode: sanitized.errorCode,
         summary: sanitized.summary
       });
-      setErrorMessage(`Analysis notice: ${err.message}. You can manually input notes below.`);
+      setErrorMessage(`Analysis notice: ${formatAiErrorMessage(err)}. You can manually input notes below.`);
       setReviewEntries([{
         id: `entry-${Date.now()}-0`,
         category: 'general',

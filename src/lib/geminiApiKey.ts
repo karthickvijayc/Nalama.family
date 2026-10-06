@@ -59,3 +59,40 @@ export const getGeminiApiKeyHeader = (): Record<string, string> => {
   }
   return {};
 };
+
+/**
+ * Parses and formats AI error messages into clean, actionable, user-friendly notices,
+ * stripping ugly raw JSON strings from Google AI Studio / Vertex AI responses.
+ */
+export function formatAiErrorMessage(err: any): string {
+  if (!err) return 'An unexpected AI error occurred.';
+  let message = typeof err === 'string' ? err : (err.message || err.error || String(err));
+
+  // Try extracting message if raw JSON error string was returned
+  try {
+    if (typeof message === 'string' && message.includes('{') && message.includes('}')) {
+      const jsonStart = message.indexOf('{');
+      const jsonEnd = message.lastIndexOf('}');
+      const parsed = JSON.parse(message.substring(jsonStart, jsonEnd + 1));
+      if (parsed?.error?.message) {
+        message = parsed.error.message;
+      }
+    }
+  } catch {
+    // Ignore JSON parse errors
+  }
+
+  // Provide clear instructions for common failure modes
+  if (/quota|resource_exhausted|prepayment credits|429/i.test(message)) {
+    return 'Gemini API quota or credits depleted. Please configure your free personal key in Settings (BYOK) at https://aistudio.google.com/apikey.';
+  }
+  if (/publisher model.*not found|not have access|aiplatform|vertex/i.test(message)) {
+    return 'Cloud AI service is not initialized on this server. Please enter your free personal Gemini API key in Settings (BYOK) at https://aistudio.google.com/apikey to enable voice notes and document uploads.';
+  }
+  if (/api key not valid|api_key_invalid|401/i.test(message)) {
+    return 'The provided Gemini API key is invalid. Please verify your key in Settings -> Bring Your Own Key.';
+  }
+
+  return message;
+}
+

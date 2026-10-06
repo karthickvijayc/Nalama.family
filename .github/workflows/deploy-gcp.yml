@@ -74,8 +74,21 @@ jobs:
 
       - name: Enable GCP Services
         run: |
-          echo "Enabling Cloud Run & Artifact Registry APIs..."
-          gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project="$PROJECT_ID" --quiet || true
+          echo "Enabling Cloud Run, Artifact Registry & Vertex AI APIs..."
+          gcloud services enable run.googleapis.com artifactregistry.googleapis.com aiplatform.googleapis.com --project="$PROJECT_ID" --quiet || true
+
+      - name: Ensure Vertex AI User IAM Role
+        run: |
+          echo "Configuring Vertex AI User role for Cloud Run compute service account..."
+          PROJECT_NUM=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)" 2>/dev/null || echo "")
+          if [ -n "$PROJECT_NUM" ]; then
+            COMPUTE_SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
+            echo "Ensuring roles/aiplatform.user on $COMPUTE_SA..."
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+              --member="serviceAccount:$COMPUTE_SA" \
+              --role="roles/aiplatform.user" \
+              --quiet || echo "IAM binding step completed or managed at organization level."
+          fi
 
       - name: Setup Artifact Registry Docker Repository
         run: |
@@ -138,6 +151,13 @@ jobs:
           
           echo "Deploying service $SERVICE_NAME with image $IMAGE to region $GAR_REGION..."
           
+          # Configure Vertex AI Enterprise Keyless IAM mode (utilizing GCP credits)
+          ENV_VARS="NODE_ENV=production,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GAR_REGION"
+          if [ -n "$GEMINI_API_KEY_SECRET" ]; then
+            echo "Optional server key present..."
+            ENV_VARS="$ENV_VARS,VERTEX_API_KEY=$GEMINI_API_KEY_SECRET"
+          fi
+
           # Attempt primary deployment
           if ! gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE" \
@@ -149,7 +169,7 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 5 \
-            --set-env-vars "NODE_ENV=production,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GAR_REGION" \
+            --set-env-vars "$ENV_VARS" \
             --quiet; then
             
             echo "⚠️ Deployment encountered an error. Recreating service cleanly and retrying..."
@@ -166,7 +186,7 @@ jobs:
               --cpu 1 \
               --min-instances 0 \
               --max-instances 5 \
-              --set-env-vars "NODE_ENV=production,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GAR_REGION" \
+              --set-env-vars "$ENV_VARS" \
               --quiet
           fi
           

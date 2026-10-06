@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { DriveState, HealthLogEntry, TimeBucket } from '../types';
 import { readJsonFile, writeJsonFile, getOrCreateMonthlyLogFile, getOrCreateCareDigestFile, appendCaregiverDigest } from '../lib/drive';
-import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
+import { getGeminiApiKeyHeader, formatAiErrorMessage } from '../lib/geminiApiKey';
 import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { recordTelemetry, sanitizeError } from '../lib/telemetry';
 import { useWakeLock } from '../lib/wakeLock';
@@ -374,7 +374,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         errorCode: sanitized.errorCode,
         summary: sanitized.summary
       });
-      setErrorMessage(`Transcription notice: ${err.message}. You can edit or add your notes below.`);
+      setErrorMessage(`Transcription notice: ${formatAiErrorMessage(err)}. You can edit or add your notes below.`);
       setReviewEntries([{
         id: `entry-${Date.now()}-0`,
         category: 'general',

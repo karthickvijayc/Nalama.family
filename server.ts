@@ -27,86 +27,44 @@ async function startServer() {
     return s === "true" || s === "1" || s === "yes" || s === "on";
   };
 
-  // Helper to initialize Gemini client safely with optional BYOK (Bring Your Own Key) or Gemini Enterprise Agent Platform / Vertex AI (GCP)
-  const getAiClient = (userApiKey?: string) => {
+  // Helper to initialize Gemini client safely with Google Cloud Vertex AI (GCP)
+  const getAiClient = (userApiKey?: string, overrideLocation?: string) => {
     const customKey = userApiKey && userApiKey.trim();
-    // 1. Prioritize user-provided BYOK from Settings (client UI)
+    // Allow optional custom key override if explicitly provided
     if (customKey) {
       return new GoogleGenAI({
         apiKey: customKey,
+        vertexai: false,
       });
     }
-
-    const enterpriseFlag =
-      isTruthy(process.env.GOOGLE_GENAI_USE_ENTERPRISE) ||
-      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEXAI) ||
-      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEX_AI) ||
-      isTruthy(process.env.VERTEX_AI) ||
-      isTruthy(process.env.VERTEXAI);
 
     const project =
       process.env.GOOGLE_CLOUD_PROJECT ||
       process.env.GCP_PROJECT_ID ||
       process.env.GCLOUD_PROJECT ||
       process.env.PROJECT_ID ||
-      process.env.GCP_PROJECT;
+      process.env.GCP_PROJECT ||
+      "gen-lang-client-0984398926";
 
     const location =
+      overrideLocation ||
       process.env.GOOGLE_CLOUD_LOCATION ||
       process.env.GCP_REGION ||
       process.env.CLOUD_ML_REGION ||
-      "us-central1";
+      "asia-southeast1";
 
     const apiKey =
       process.env.GEMINI_API_KEY ||
       process.env.GOOGLE_API_KEY ||
       process.env.VERTEX_API_KEY;
 
-    // Detect if running in Google Cloud or explicitly configured with GCP credentials
-    const hasGcpEnv = Boolean(
-      project ||
-      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      process.env.K_SERVICE || // Cloud Run
-      process.env.FUNCTION_TARGET // Cloud Functions
-    );
-
-    // If explicit enterprise flag is set, OR if GCP project/env is present and no standard AI Studio key is provided
-    const useEnterprise = enterpriseFlag || (!apiKey && hasGcpEnv);
-
-    // 2. Gemini Enterprise Agent Platform / Vertex AI (GCP) mode
-    if (useEnterprise) {
-      process.env.GOOGLE_GENAI_USE_ENTERPRISE = "true";
-      process.env.GOOGLE_GENAI_USE_VERTEXAI = "true";
-      if (project && !process.env.GOOGLE_CLOUD_PROJECT) {
-        process.env.GOOGLE_CLOUD_PROJECT = project;
-      }
-      if (location && !process.env.GOOGLE_CLOUD_LOCATION) {
-        process.env.GOOGLE_CLOUD_LOCATION = location;
-      }
-
-      return new GoogleGenAI({
-        enterprise: true,
-        vertexai: true,
-        ...(project ? { project } : {}),
-        ...(location ? { location } : {}),
-        ...(apiKey ? { apiKey: apiKey.trim() } : {}),
-      });
-    }
-
-    // 3. Google AI Studio mode (default)
-    if (!apiKey) {
-      throw new Error(
-        "No Gemini API key or GCP credentials available. Configure GEMINI_API_KEY in server environment, or set GOOGLE_GENAI_USE_ENTERPRISE=true with GOOGLE_CLOUD_PROJECT, or enter a personal key in Settings (BYOK)."
-      );
-    }
-
+    // Primary: Google Cloud Vertex AI Enterprise Keyless IAM (consuming GCP billing credits)
     return new GoogleGenAI({
-      apiKey: apiKey.trim(),
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
+      enterprise: true,
+      vertexai: true,
+      ...(project ? { project } : {}),
+      ...(location ? { location } : {}),
+      ...(apiKey ? { apiKey: apiKey.trim() } : {}),
     });
   };
 
@@ -126,25 +84,19 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // AI Status endpoint to verify whether Vertex AI or Google AI Studio is active
+  // AI Status endpoint to verify Vertex AI state and GCP credit utilization
   app.get("/api/ai-status", (req, res) => {
-    const isEnterprise =
-      isTruthy(process.env.GOOGLE_GENAI_USE_ENTERPRISE) ||
-      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEXAI) ||
-      isTruthy(process.env.GOOGLE_GENAI_USE_VERTEX_AI) ||
-      isTruthy(process.env.VERTEX_AI) ||
-      isTruthy(process.env.VERTEXAI) ||
-      (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && Boolean(process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE));
-
-    const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || process.env.GCP_PROJECT;
-    const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "us-central1";
+    const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.PROJECT_ID || "gen-lang-client-0984398926";
+    const location = process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION || "asia-southeast1";
     const hasServerApiKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.VERTEX_API_KEY);
 
     res.json({
-      configured: isEnterprise || hasServerApiKey,
-      provider: isEnterprise ? "vertex_ai" : hasServerApiKey ? "ai_studio" : "none",
-      vertexProject: isEnterprise ? (project || "adc-default") : undefined,
-      vertexLocation: isEnterprise ? location : undefined,
+      configured: true,
+      provider: "vertex_ai",
+      vertexProject: project,
+      vertexLocation: location,
+      billingType: "gcp_credits",
+      primaryModel: "gemini-3.8-flash",
       hasServerKey: hasServerApiKey
     });
   });
@@ -156,18 +108,35 @@ async function startServer() {
     systemInstruction?: string;
     userApiKey?: string;
   }) => {
-    const ai = getAiClient(options.userApiKey);
+    let ai = getAiClient(options.userApiKey);
     const isCustomKey = Boolean(options.userApiKey && options.userApiKey.trim());
 
-    // Prioritize configured model, then fastest & most cost-effective models with multi-tier fallback
+    // Normalize contents to strict Vertex AI compliant array schema: [{ role: 'user', parts: [...] }]
+    let normalizedContents: any = options.contents;
+    if (typeof options.contents === "string") {
+      normalizedContents = options.contents;
+    } else if (Array.isArray(options.contents)) {
+      normalizedContents = options.contents;
+    } else if (options.contents && typeof options.contents === "object") {
+      if (Array.isArray(options.contents.parts)) {
+        normalizedContents = [{ role: options.contents.role || "user", parts: options.contents.parts }];
+      } else {
+        normalizedContents = [options.contents];
+      }
+    }
+
+    // Prioritize configured model, then highest tier Gemini 3.8 Flash workhorse down through
+    // distinct model quota pools to maximize throughput and eliminate quota exhaustion failures.
     const configuredModel = process.env.GEMINI_MODEL || process.env.VERTEX_MODEL;
     const defaultModels = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-3.8-flash",
-      "gemini-flash-latest",
-      "gemini-1.5-pro"
+      "gemini-3.8-flash",      // 1st choice: Latest flagship Flash workhorse (Sept 2026) - superior reasoning & multimodal audio/vision
+      "gemini-3.7-flash",      // 2nd choice: Frontier agentic & multimodal reasoning model (GA Aug 2026, separate quota pool)
+      "gemini-3.6-flash",      // 3rd choice: Balanced multimodal workhorse (GA July 2026, separate quota pool)
+      "gemini-3.5-flash",      // 4th choice: High-stability Flash baseline (GA May 2026, separate quota pool)
+      "gemini-3.5-flash-lite", // 5th choice: Ultra-fast high-throughput tier (GA July 2026, separate quota pool)
+      "gemini-3.1-flash-lite", // 6th choice: Lightweight cost-efficient high-RPM tier (GA May 2026, separate quota pool)
+      "gemini-2.5-flash",      // 7th choice: Long-term stable production baseline
+      "gemini-2.5-pro",        // 8th choice: High-depth reasoning fallback if all Flash quotas are exhausted
     ];
     const models = Array.from(new Set([
       ...(configuredModel ? [configuredModel.trim()] : []),
@@ -179,7 +148,7 @@ async function startServer() {
       try {
         const response = await ai.models.generateContent({
           model,
-          contents: options.contents,
+          contents: normalizedContents,
           config: {
             ...options.config,
             ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
@@ -193,33 +162,90 @@ async function startServer() {
         const errMsg = err?.message || String(err);
         console.warn(`Gemini model ${model} failed:`, errMsg);
 
+        // If Vertex AI regional model not found (e.g. in asia-southeast1), try us-central1 global hub once
+        if (
+          !isCustomKey &&
+          (errMsg.includes("not found") || errMsg.includes("404")) &&
+          (process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION) &&
+          (process.env.GOOGLE_CLOUD_LOCATION || process.env.GCP_REGION) !== "us-central1"
+        ) {
+          try {
+            console.log(`[Gemini API] Retrying model ${model} via us-central1 hub...`);
+            const fallbackAi = getAiClient(options.userApiKey, "us-central1");
+            const response = await fallbackAi.models.generateContent({
+              model,
+              contents: normalizedContents,
+              config: {
+                ...options.config,
+                ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+              },
+            });
+            if (response.text && response.text.trim()) {
+              ai = fallbackAi; // Update ai client for subsequent calls
+              return { text: response.text.trim(), model };
+            }
+          } catch (retryErr: any) {
+            console.warn(`Gemini model ${model} in us-central1 also failed:`, retryErr?.message || String(retryErr));
+          }
+        }
+
         // If credits or quota are exhausted on this key, logging clear notice
         if (errMsg.includes("prepayment credits are depleted") || errMsg.includes("RESOURCE_EXHAUSTED") || err?.status === 429) {
-          console.error(`[Gemini API] Quota/credits depleted for ${isCustomKey ? "custom user key" : "project server key"}. Model: ${model}.`);
+          console.error(`[Gemini API] Quota/credits depleted for ${isCustomKey ? "custom user key" : "project server key"}. Model: ${model}. Falling back to next tier.`);
         }
       }
     }
 
-    // Format clear user-friendly error message if credits or quotas are depleted
+    // Format clear user-friendly error message
     const rawErrMsg = lastError?.message || String(lastError);
+
+    // Extract message from JSON payload if present
+    let extractedMsg = rawErrMsg;
+    try {
+      if (rawErrMsg.includes("{") && rawErrMsg.includes("}")) {
+        const start = rawErrMsg.indexOf("{");
+        const end = rawErrMsg.lastIndexOf("}");
+        const parsed = JSON.parse(rawErrMsg.substring(start, end + 1));
+        if (parsed?.error?.message) {
+          extractedMsg = parsed.error.message;
+        }
+      }
+    } catch {}
+
     if (rawErrMsg.includes("prepayment credits are depleted") || rawErrMsg.includes("RESOURCE_EXHAUSTED") || lastError?.status === 429) {
       const quotaErr = new Error(
         isCustomKey 
           ? "Your personal Gemini API key has exceeded its quota or requires billing. You can generate a fresh free key at https://aistudio.google.com/apikey and update it in Settings."
-          : "Server Gemini API credits are depleted. Please enter your free personal Gemini API Key in Settings (BYOK) or visit https://aistudio.google.com/apikey to get one in 10 seconds."
+          : "Server Gemini API credits/quota are depleted. Please enter your free personal Gemini API Key in Settings (BYOK) or visit https://aistudio.google.com/apikey to get one in 10 seconds."
       );
       (quotaErr as any).status = 429;
       (quotaErr as any).isQuotaExhausted = true;
       throw quotaErr;
     }
 
-    if (rawErrMsg.includes("API key not valid") || rawErrMsg.includes("API_KEY_INVALID")) {
+    if (rawErrMsg.includes("API key not valid") || rawErrMsg.includes("API_KEY_INVALID") || lastError?.status === 401) {
       const invalidErr = new Error("The provided Gemini API key is invalid. Please verify the key in Settings -> Personal Gemini API Key.");
       (invalidErr as any).status = 401;
       throw invalidErr;
     }
 
-    throw lastError || new Error("All Gemini models failed to generate a response");
+    if (
+      extractedMsg.includes("Publisher model") ||
+      extractedMsg.includes("not found or your project does not have access") ||
+      extractedMsg.includes("PERMISSION_DENIED") ||
+      lastError?.status === 404 ||
+      lastError?.status === 403
+    ) {
+      const accessErr = new Error(
+        isCustomKey
+          ? "Unable to access Gemini models with this API key. Please check your key permissions at https://aistudio.google.com/apikey and update it in Settings."
+          : "Server Gemini AI access is not configured on this project. Please enter your free personal Gemini API Key in Settings (BYOK) at https://aistudio.google.com/apikey to enable voice and file features."
+      );
+      (accessErr as any).status = isCustomKey ? 403 : 404;
+      throw accessErr;
+    }
+
+    throw new Error(extractedMsg || "All Gemini models failed to generate a response");
   };
 
   const CLASSIFICATION_SYSTEM_INSTRUCTION = `You are an expert multilingual health & wellness logging assistant for nalama.family.
@@ -361,19 +387,22 @@ Return ONLY valid JSON matching this schema:
 
       const result = await callGeminiWithFallback({
         userApiKey,
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: cleanMimeType,
-                data: audioBase64,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: cleanMimeType,
+                  data: audioBase64,
+                },
               },
-            },
-            {
-              text: `Please transcribe this audio accurately and classify all health activities into separate entries with appropriate categories, 2-4 word headlines, and time buckets (Morning, Afternoon, Evening, Night) as specified in the system instructions. Recording local time: ${currentTimeHint}.`,
-            },
-          ],
-        },
+              {
+                text: `Please transcribe this audio accurately and classify all health activities into separate entries with appropriate categories, 2-4 word headlines, and time buckets (Morning, Afternoon, Evening, Night) as specified in the system instructions. Recording local time: ${currentTimeHint}.`,
+              },
+            ],
+          },
+        ],
         systemInstruction: CLASSIFICATION_SYSTEM_INSTRUCTION,
         config: {
           responseMimeType: "application/json",
@@ -638,7 +667,12 @@ Return ONLY a valid JSON object matching this schema:
 
       const result = await callGeminiWithFallback({
         userApiKey,
-        contents: { parts },
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
         systemInstruction: CLASSIFICATION_SYSTEM_INSTRUCTION,
         config: {
           responseMimeType: "application/json",

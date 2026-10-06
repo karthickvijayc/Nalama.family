@@ -309,7 +309,7 @@ export default function Settings({
       if (res.ok && data.success) {
         setKeyTestResult({
           success: true,
-          message: `Connected successfully! (${data.model || 'Gemini 2.5 Flash'})`
+          message: `Connected successfully! (${data.model || 'Gemini 3.8 Flash'})`
         });
         recordTelemetry({
           capability: 'auth',
@@ -317,8 +317,8 @@ export default function Settings({
           status: 'success',
           durationMs,
           statusCode: res.status,
-          summary: `Gemini API key validated (${data.model || 'Gemini 2.5 Flash'})`,
-          meta: { model: data.model || 'gemini-2.5-flash' }
+          summary: `Gemini API key validated (${data.model || 'Gemini 3.8 Flash'})`,
+          meta: { model: data.model || 'gemini-3.8-flash' }
         });
       } else {
         setKeyTestResult({
@@ -1435,16 +1435,38 @@ export default function Settings({
               </p>
 
               <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3 border-b border-stone-100">
-                  <div>
-                    <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
-                      <span>Bring Your Own Key (BYOK)</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-                        Recommended
+                {/* Vertex AI Enterprise Active Banner */}
+                <div className="bg-gradient-to-r from-sky-50 via-teal-50/50 to-emerald-50/40 p-4 rounded-xl border border-sky-200/80 flex items-start gap-3">
+                  <div className="p-2 bg-sky-600 text-white rounded-lg shrink-0 mt-0.5">
+                    <Sparkles size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-sky-950">Google Cloud Vertex AI Active</h4>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Enterprise GCP Credits
                       </span>
-                    </h4>
-                    <p className="text-xs text-stone-500 mt-1 max-w-xl leading-relaxed">
-                      Connect your personal Google AI Studio API key or Gemini subscription. Your key is stored securely in your browser and your private Google Drive file — never shared with third parties.
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-300">
+                        Gemini 3.8 Flash
+                      </span>
+                    </div>
+                    <p className="text-xs text-sky-900/80 mt-1 leading-relaxed">
+                      All multimodal features (voice notes, document analysis, coaching, weekly insights) are centrally powered by Google Cloud Vertex AI using your GCP project credits ({serverAiStatus?.vertexProject || 'gen-lang-client-0984398926'} in {serverAiStatus?.vertexLocation || 'asia-southeast1'}).
+                    </p>
+                    <div className="flex items-center gap-2 mt-2 text-[11px] text-teal-800 font-semibold">
+                      <CheckCircle2 size={13} className="text-emerald-600" />
+                      <span>Keyless IAM Managed • No personal dev keys required</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-2 pb-3 border-b border-stone-100">
+                  <div>
+                    <h5 className="text-xs font-bold text-stone-700 flex items-center gap-2">
+                      <span>Personal Gemini API Key (Optional Override)</span>
+                    </h5>
+                    <p className="text-[11px] text-stone-500 mt-0.5 leading-relaxed">
+                      Vertex AI runs automatically using your GCP credits. If you prefer to override server AI with a personal Google AI Studio key, enter it below.
                     </p>
                   </div>
 
@@ -1452,11 +1474,11 @@ export default function Settings({
                     href="https://aistudio.google.com/apikey"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50/80 hover:bg-teal-100/80 px-3 py-2 rounded-xl transition-colors shrink-0 border border-teal-200/60"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-stone-600 hover:text-stone-800 bg-stone-100 hover:bg-stone-200/80 px-3 py-1.5 rounded-xl transition-colors shrink-0 border border-stone-200"
                     id="get-free-gemini-key-btn"
                   >
-                    <span>Get Free Gemini Key</span>
-                    <ExternalLink size={13} />
+                    <span>Google AI Studio</span>
+                    <ExternalLink size={12} />
                   </a>
                 </div>
 
