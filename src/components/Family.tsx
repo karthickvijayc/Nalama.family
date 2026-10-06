@@ -25,9 +25,11 @@ import {
   FolderOpen,
   Link,
   ExternalLink,
-  Wifi
+  Wifi,
+  BookUser
 } from 'lucide-react';
 import { User } from 'firebase/auth';
+import { isContactPickerSupported, pickContactEmail } from '../lib/contactPicker';
 import { DriveState, CaregiverDigest, CareDigestFileContent, DigestMetricItem, FamilyMember } from '../types';
 import { 
   readJsonFile, 
@@ -96,6 +98,30 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
   const [newMemberFileId, setNewMemberFileId] = useState('');
   const [isScanningDrive, setIsScanningDrive] = useState(false);
   const [discoveredFiles, setDiscoveredFiles] = useState<any[]>([]);
+  const [isPickingContact, setIsPickingContact] = useState(false);
+  const [contactPickerNotice, setContactPickerNotice] = useState<string | null>(null);
+
+  const handlePickContactForMember = async () => {
+    setContactPickerNotice(null);
+    if (!isContactPickerSupported()) {
+      setContactPickerNotice('Device contact lookup is supported on mobile devices (Android Chrome, Edge, Samsung Internet, or installed PWA).');
+      return;
+    }
+    setIsPickingContact(true);
+    try {
+      const contact = await pickContactEmail();
+      if (contact) {
+        setNewMemberEmail(contact.email);
+        if (!newMemberName.trim() && contact.name) {
+          setNewMemberName(contact.name);
+        }
+      }
+    } catch (e: any) {
+      console.warn('Contact picker error:', e);
+    } finally {
+      setIsPickingContact(false);
+    }
+  };
 
   // Link Drive File Modal for an existing member
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -976,7 +1002,19 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
 
               {/* Loved One's Email */}
               <div>
-                <label className="text-xs font-bold text-stone-700 mb-1 block">Loved One&apos;s Google Email (Optional)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-stone-700">Loved One&apos;s Google Email (Optional)</label>
+                  <button
+                    type="button"
+                    onClick={handlePickContactForMember}
+                    disabled={isPickingContact}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 active:scale-95 border border-teal-200/80 px-2 py-0.5 rounded-lg transition-all cursor-pointer shadow-2xs"
+                    title="Look up email from device contacts"
+                  >
+                    <BookUser size={12} className="text-teal-700" />
+                    <span>{isContactPickerSupported() ? 'Pick Contact' : 'Lookup'}</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
@@ -987,6 +1025,9 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                     className="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 text-xs text-stone-900 font-medium outline-none focus:ring-2 focus:ring-teal-500 bg-white"
                   />
                 </div>
+                {contactPickerNotice && (
+                  <p className="text-[11px] text-amber-700 mt-1">{contactPickerNotice}</p>
+                )}
               </div>
 
               {/* Remote Drive Digest Connection Section - Auto-Scanned */}

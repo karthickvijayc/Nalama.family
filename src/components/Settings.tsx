@@ -38,10 +38,12 @@ import {
   EyeOff,
   Sliders,
   Smartphone,
-  Download
+  Download,
+  BookUser
 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
-import { getFolderPermissions, addFolderPermission, removeFolderPermission } from '../lib/drive';
+import { getFolderPermissions, addFolderPermission, removeFolderPermission, getFamilyMembersFromDrive } from '../lib/drive';
+import { isContactPickerSupported, pickContactEmail, getRecentContacts, saveRecentContact, ContactItem } from '../lib/contactPicker';
 import { DriveState, UserProfile, UserTargets } from '../types';
 import { getCustomGeminiApiKey, setCustomGeminiApiKey, getAiFetchHeaders } from '../lib/geminiApiKey';
 import { User as FirebaseUser } from 'firebase/auth';
@@ -115,10 +117,14 @@ export default function Settings({
   // Caregiver sharing state
   const [isAdding, setIsAdding] = useState(false);
   const [email, setEmail] = useState('');
+  const [selectedContactName, setSelectedContactName] = useState<string | null>(null);
   const [caregivers, setCaregivers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isPickingContact, setIsPickingContact] = useState(false);
+  const [suggestedContacts, setSuggestedContacts] = useState<ContactItem[]>([]);
+  const [contactPickerNotice, setContactPickerNotice] = useState<string | null>(null);
 
   // Close reset confirmation or caregiver add modal on Android back button/swipe
   useModalBackHandler(showResetAllConfirm, () => setShowResetAllConfirm(false));
@@ -417,13 +423,80 @@ export default function Settings({
     }
   };
 
+  // Load suggestions from family members and recent contacts
+  useEffect(() => {
+    async function loadSuggestions() {
+      const recents = getRecentContacts();
+      const familyContacts: ContactItem[] = [];
+      if (driveState?.token && driveState?.contextFileId) {
+        try {
+          const members = await getFamilyMembersFromDrive(driveState.token, driveState.contextFileId);
+          if (Array.isArray(members)) {
+            members.forEach((m: any) => {
+              if (m.sharedEmail && m.sharedEmail.includes('@')) {
+                familyContacts.push({ email: m.sharedEmail.toLowerCase(), name: m.name });
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('Could not load family members for contact suggestions:', e);
+        }
+      }
+
+      // Merge unique by email
+      const map = new Map<string, ContactItem>();
+      [...familyContacts, ...recents].forEach(c => {
+        const clean = c.email.trim().toLowerCase();
+        if (clean && !map.has(clean)) {
+          map.set(clean, { email: clean, name: c.name });
+        }
+      });
+      setSuggestedContacts(Array.from(map.values()));
+    }
+
+    if (driveState) {
+      loadSuggestions();
+    }
+  }, [driveState, isAdding]);
+
+  const handlePickContact = async () => {
+    setErrorMsg('');
+    setContactPickerNotice(null);
+
+    if (!isContactPickerSupported()) {
+      setContactPickerNotice(
+        'Device address book lookup is supported on mobile devices (Android Chrome, Edge, Samsung Internet or PWA). You can select from your family circle below or type an email address.'
+      );
+      return;
+    }
+
+    setIsPickingContact(true);
+    try {
+      const contact = await pickContactEmail();
+      if (contact) {
+        setEmail(contact.email);
+        setSelectedContactName(contact.name || null);
+        setErrorMsg('');
+        setContactPickerNotice(null);
+      }
+    } catch (err: any) {
+      console.warn('Contact picker error:', err);
+      setErrorMsg(err.message || 'Unable to read contact email.');
+    } finally {
+      setIsPickingContact(false);
+    }
+  };
+
   const handleShare = async () => {
     if (!email.trim() || !driveState) return;
     setIsAdding(true);
     setErrorMsg('');
     try {
-      await addFolderPermission(driveState.token, driveState.familyFolderId, email);
+      await addFolderPermission(driveState.token, driveState.familyFolderId, email.trim());
+      saveRecentContact(email.trim(), selectedContactName || undefined);
       setEmail('');
+      setSelectedContactName(null);
+      setContactPickerNotice(null);
       setIsAdding(false);
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
@@ -1289,18 +1362,96 @@ export default function Settings({
             <h3 className="font-bold text-stone-900 text-lg">Invite Caregiver</h3>
             
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-bold text-stone-600 uppercase tracking-wide">Google Account Email</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-bold text-stone-600 uppercase tracking-wide">
+                  Google Account Email
+                </label>
+                <button
+                  type="button"
+                  onClick={handlePickContact}
+                  disabled={isPickingContact}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-canopy-800 bg-canopy-50 hover:bg-canopy-100 active:scale-95 border border-canopy-200/80 px-2.5 py-1 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  title="Look up email from device contacts"
+                >
+                  {isPickingContact ? (
+                    <Loader2 size={13} className="animate-spin text-canopy-700" />
+                  ) : (
+                    <BookUser size={14} className="text-canopy-700" />
+                  )}
+                  <span>{isContactPickerSupported() ? 'Choose from Contacts' : 'Contact Lookup'}</span>
+                </button>
+              </div>
+
               <div className="relative">
                 <Mail size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
                 <input 
                   type="email" 
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (selectedContactName) setSelectedContactName(null);
+                  }}
                   placeholder="e.g. son@gmail.com"
                   className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-stone-200 bg-stone-50 text-stone-900 font-medium focus:outline-none focus:ring-2 focus:ring-canopy-500"
                 />
               </div>
+
+              {selectedContactName && (
+                <div className="flex items-center gap-1.5 text-xs text-canopy-800 bg-canopy-50/80 px-3 py-1.5 rounded-xl border border-canopy-200/60 w-fit">
+                  <CheckCircle2 size={13} className="text-canopy-700 shrink-0" />
+                  <span>Selected contact: <strong className="font-bold">{selectedContactName}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedContactName(null)}
+                    className="ml-1 text-stone-400 hover:text-stone-600 font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {contactPickerNotice && (
+                <div className="bg-amber-50 border border-amber-200/80 p-2.5 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                  <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                  <span>{contactPickerNotice}</span>
+                </div>
+              )}
+
               {errorMsg && <p className="text-rose-500 text-xs font-medium px-2">{errorMsg}</p>}
+
+              {/* Quick Select Suggestions from Family Circle & Recent Contacts */}
+              {suggestedContacts.filter(c => !caregivers.some(cg => cg.emailAddress?.toLowerCase() === c.email.toLowerCase())).length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                    Quick Select from Family Circle:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestedContacts
+                      .filter(c => !caregivers.some(cg => cg.emailAddress?.toLowerCase() === c.email.toLowerCase()))
+                      .slice(0, 5)
+                      .map((sc) => (
+                        <button
+                          key={sc.email}
+                          type="button"
+                          onClick={() => {
+                            setEmail(sc.email);
+                            setSelectedContactName(sc.name || null);
+                            setErrorMsg('');
+                            setContactPickerNotice(null);
+                          }}
+                          className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                            email.toLowerCase() === sc.email.toLowerCase()
+                              ? 'bg-canopy-100 text-canopy-900 border-canopy-300 font-bold shadow-2xs'
+                              : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200/80'
+                          }`}
+                        >
+                          <User size={12} className="text-stone-500" />
+                          <span>{sc.name ? `${sc.name} (${sc.email})` : sc.email}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-start gap-3 bg-canopy-50/70 p-3 rounded-xl border border-canopy-100 mt-1">
