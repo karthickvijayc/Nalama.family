@@ -1,4 +1,4 @@
-import { MonthlyLogFile, CaregiverDigest, CareDigestFileContent, UserProfile } from '../types';
+import { MonthlyLogFile, CaregiverDigest, CareDigestFileContent, UserProfile, HealthLogEntry } from '../types';
 import { withWakeLock } from './wakeLock';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
@@ -240,6 +240,119 @@ export async function listMonthlyLogFiles(token: string, mainFolderId: string): 
     console.warn('Failed to list monthly log files:', err);
     return [];
   }
+}
+
+/**
+ * Updates a health log entry across monthly partitioned files in Google Drive.
+ */
+export async function updateHealthLogEntryInDrive(
+  token: string,
+  mainFolderId: string,
+  updatedEntry: HealthLogEntry,
+  originalTimestamp?: string
+): Promise<boolean> {
+  const origDate = originalTimestamp ? new Date(originalTimestamp) : new Date(updatedEntry.timestamp);
+  const newDate = new Date(updatedEntry.timestamp);
+  
+  const { fileName: origFileName } = getMonthlyLogFileName(origDate);
+  const { fileName: newFileName } = getMonthlyLogFileName(newDate);
+
+  // If entry remained in the same month partition
+  if (origFileName === newFileName) {
+    const fileId = await findFileOrFolder(token, origFileName, 'application/json', mainFolderId);
+    if (fileId) {
+      const data = await readJsonFile(token, fileId);
+      if (data && Array.isArray(data.logs)) {
+        const idx = data.logs.findIndex((l: HealthLogEntry) => l.id === updatedEntry.id);
+        if (idx !== -1) {
+          data.logs[idx] = { ...data.logs[idx], ...updatedEntry };
+          await writeJsonFile(token, origFileName, data, mainFolderId, fileId);
+          return true;
+        }
+      }
+    }
+
+    // Fallback: search other monthly log files in case original timestamp was off
+    const monthlyFiles = await listMonthlyLogFiles(token, mainFolderId);
+    for (const mFile of monthlyFiles) {
+      if (mFile.name === origFileName) continue;
+      const data = await readJsonFile(token, mFile.id);
+      if (data && Array.isArray(data.logs)) {
+        const idx = data.logs.findIndex((l: HealthLogEntry) => l.id === updatedEntry.id);
+        if (idx !== -1) {
+          data.logs[idx] = { ...data.logs[idx], ...updatedEntry };
+          await writeJsonFile(token, mFile.name, data, mainFolderId, mFile.id);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // If entry was moved across month boundaries:
+  // 1. Remove from original month file
+  const monthlyFiles = await listMonthlyLogFiles(token, mainFolderId);
+  for (const mFile of monthlyFiles) {
+    const data = await readJsonFile(token, mFile.id);
+    if (data && Array.isArray(data.logs)) {
+      const idx = data.logs.findIndex((l: HealthLogEntry) => l.id === updatedEntry.id);
+      if (idx !== -1) {
+        data.logs.splice(idx, 1);
+        await writeJsonFile(token, mFile.name, data, mainFolderId, mFile.id);
+        break;
+      }
+    }
+  }
+
+  // 2. Add to new target month file
+  const { fileId: newFileId, fileName: targetNewFileName, monthKey } = await getOrCreateMonthlyLogFile(token, mainFolderId, newDate);
+  const newData = (await readJsonFile(token, newFileId)) || { schema_version: '1.0', month: monthKey, logs: [] };
+  const currentLogs: HealthLogEntry[] = Array.isArray(newData.logs) ? newData.logs : [];
+  const updatedLogs = [updatedEntry, ...currentLogs];
+  await writeJsonFile(token, targetNewFileName, { ...newData, logs: updatedLogs }, mainFolderId, newFileId);
+  return true;
+}
+
+/**
+ * Deletes a health log entry across monthly partitioned files in Google Drive.
+ */
+export async function deleteHealthLogEntryInDrive(
+  token: string,
+  mainFolderId: string,
+  logId: string,
+  timestamp?: string
+): Promise<boolean> {
+  const targetDate = timestamp ? new Date(timestamp) : new Date();
+  const { fileName } = getMonthlyLogFileName(targetDate);
+
+  const fileId = await findFileOrFolder(token, fileName, 'application/json', mainFolderId);
+  if (fileId) {
+    const data = await readJsonFile(token, fileId);
+    if (data && Array.isArray(data.logs)) {
+      const idx = data.logs.findIndex((l: HealthLogEntry) => l.id === logId);
+      if (idx !== -1) {
+        data.logs.splice(idx, 1);
+        await writeJsonFile(token, fileName, data, mainFolderId, fileId);
+        return true;
+      }
+    }
+  }
+
+  // Fallback: search all other monthly log files
+  const monthlyFiles = await listMonthlyLogFiles(token, mainFolderId);
+  for (const mFile of monthlyFiles) {
+    if (mFile.name === fileName) continue;
+    const data = await readJsonFile(token, mFile.id);
+    if (data && Array.isArray(data.logs)) {
+      const idx = data.logs.findIndex((l: HealthLogEntry) => l.id === logId);
+      if (idx !== -1) {
+        data.logs.splice(idx, 1);
+        await writeJsonFile(token, mFile.name, data, mainFolderId, mFile.id);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // --- Caregiver Digest Storage Helpers ---

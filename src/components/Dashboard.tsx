@@ -32,11 +32,28 @@ import {
   Quote,
   Scale,
   TrendingUp,
-  Clock
+  Clock,
+  Edit3,
+  Trash2,
+  Save
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { DriveState, HealthLogEntry, UserProfile, TimeBucket, TrendMetricType } from '../types';
-import { readJsonFile, getOrCreateMonthlyLogFile, getMonthlyLogFileName, getUserDisplayName, listMonthlyLogFiles } from '../lib/drive';
+import { 
+  readJsonFile, 
+  writeJsonFile,
+  getOrCreateMonthlyLogFile, 
+  getMonthlyLogFileName, 
+  getUserDisplayName, 
+  listMonthlyLogFiles,
+  updateHealthLogEntryInDrive,
+  deleteHealthLogEntryInDrive,
+  getOrCreateCareDigestFile,
+  appendCaregiverDigest
+} from '../lib/drive';
+import { hasActiveCaregivers } from '../lib/caregiverDigest';
+import { getGeminiApiKeyHeader } from '../lib/geminiApiKey';
 import TrendModal from './TrendModal';
 import { parseProfileWeight, extractWeightFromLog } from '../lib/trendGenerator';
 import { useWakeLock } from '../lib/wakeLock';
@@ -49,6 +66,7 @@ interface DashboardProps {
   refreshTrigger?: number;
   userProfile?: UserProfile | null;
   user?: { displayName?: string | null; email?: string | null } | null;
+  onActivityUpdated?: () => void;
 }
 
 interface ActivityEntry {
@@ -61,6 +79,9 @@ interface ActivityEntry {
   source?: 'voice' | 'manual' | 'synced';
   rawTranscript?: string;
   timestamp?: number;
+  rawIsoDate?: string;
+  isRoutine?: boolean;
+  routineFactId?: string;
   timeBucket: TimeBucket;
   dateKey: string;
   dateLabel: string;
@@ -182,7 +203,7 @@ function getBucketIcon(bucket: TimeBucket) {
 }
 
 
-export default function Dashboard({ driveState, refreshTrigger, userProfile, user }: DashboardProps) {
+export default function Dashboard({ driveState, refreshTrigger, userProfile, user, onActivityUpdated }: DashboardProps) {
   const [routineActivities, setRoutineActivities] = useState<ActivityEntry[]>([]);
   const [logStatusOverrides, setLogStatusOverrides] = useState<Record<string, 'completed' | 'pending'>>({});
   const [selectedFilter, setSelectedFilter] = useState<ActivityCategory>('all');
@@ -204,11 +225,16 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const [activeMonthDisplay, setActiveMonthDisplay] = useState<string>('Today & Past 30 Days');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
   const [selectedActivity, setSelectedActivity] = useState<ActivityEntry | null>(null);
+  const [isEditingSelectedActivity, setIsEditingSelectedActivity] = useState<boolean>(false);
   const [visibleDaysCount, setVisibleDaysCount] = useState<number>(3);
+  const [localRefreshCounter, setLocalRefreshCounter] = useState<number>(0);
 
   // Close trend modal or activity detail modal on Android back button/swipe
   useModalBackHandler(selectedTrendMetric !== null, () => setSelectedTrendMetric(null));
-  useModalBackHandler(selectedActivity !== null, () => setSelectedActivity(null));
+  useModalBackHandler(selectedActivity !== null, () => {
+    setSelectedActivity(null);
+    setIsEditingSelectedActivity(false);
+  });
 
   // Keep scroll focused on Today at top upon initial load
   useEffect(() => {
@@ -335,7 +361,9 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
                 dateKey: 'today',
                 dateLabel: 'Today',
                 dayName: 'Today',
-                rawTranscript: rawText
+                rawTranscript: rawText,
+                isRoutine: true,
+                routineFactId: f.id ? String(f.id) : undefined
               });
             });
             setRoutineActivities(mappedRoutines);
@@ -605,7 +633,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
     }
 
     loadDashboardData();
-  }, [driveState, refreshTrigger]);
+  }, [driveState, refreshTrigger, localRefreshCounter]);
   
   const toggleStatus = (id: string, currentStatus: 'completed' | 'pending') => {
     setLogStatusOverrides(prev => ({
@@ -618,6 +646,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
     const rawItems: ActivityEntry[] = [
       ...routineActivities.map((r) => ({
         ...r,
+        isRoutine: true,
         status: logStatusOverrides[r.id] || r.status,
       })),
       ...healthLogs.map((l) => ({
@@ -631,6 +660,8 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         subtitle: l.transcript.length > 60 ? l.transcript.substring(0, 60) + '...' : l.transcript,
         status: 'completed' as const,
         timestamp: new Date(l.timestamp).getTime(),
+        rawIsoDate: l.timestamp,
+        isRoutine: false,
         timeBucket: l.timeBucket || getLogTimeBucket(l),
         dateKey: getDateInfo(new Date(l.timestamp)).dateKey,
         dateLabel: getDateInfo(new Date(l.timestamp)).dateLabel,
@@ -1066,7 +1097,14 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
                                 key={activity.id} 
                                 activity={activity} 
                                 onToggle={() => toggleStatus(activity.id, activity.status as any)} 
-                                onSelect={(act) => setSelectedActivity(act)}
+                                onSelect={(act) => {
+                                  setSelectedActivity(act);
+                                  setIsEditingSelectedActivity(false);
+                                }}
+                                onEdit={(act) => {
+                                  setSelectedActivity(act);
+                                  setIsEditingSelectedActivity(true);
+                                }}
                               />
                             ))}
                           </div>
@@ -1098,10 +1136,28 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         )}
       </section>
 
-      {/* Full Activity Details Modal */}
+      {/* Full Activity Details & Edit Modal */}
       <ActivityDetailModal 
         activity={selectedActivity} 
-        onClose={() => setSelectedActivity(null)} 
+        initialEditMode={isEditingSelectedActivity}
+        driveState={driveState}
+        userProfile={userProfile}
+        onClose={() => {
+          setSelectedActivity(null);
+          setIsEditingSelectedActivity(false);
+        }} 
+        onActivitySaved={() => {
+          setSelectedActivity(null);
+          setIsEditingSelectedActivity(false);
+          setLocalRefreshCounter(prev => prev + 1);
+          if (onActivityUpdated) onActivityUpdated();
+        }}
+        onActivityDeleted={() => {
+          setSelectedActivity(null);
+          setIsEditingSelectedActivity(false);
+          setLocalRefreshCounter(prev => prev + 1);
+          if (onActivityUpdated) onActivityUpdated();
+        }}
       />
 
       {/* Metric Trends Modal */}
@@ -1360,14 +1416,119 @@ function FormattedActivityDetails({ text, category }: { text: string; category: 
   );
 }
 
+function getInitialDateStr(activity: ActivityEntry): string {
+  if (activity.rawIsoDate) {
+    const d = new Date(activity.rawIsoDate);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  if (activity.timestamp) {
+    const d = new Date(activity.timestamp);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getInitialTimeStr(activity: ActivityEntry): string {
+  if (activity.rawIsoDate) {
+    const d = new Date(activity.rawIsoDate);
+    if (!isNaN(d.getTime())) {
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+  }
+  if (activity.timestamp) {
+    const d = new Date(activity.timestamp);
+    if (!isNaN(d.getTime())) {
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+  }
+  if (activity.time) {
+    const m = activity.time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (m) {
+      let h = parseInt(m[1], 10);
+      const min = m[2];
+      const ampm = m[3] ? m[3].toUpperCase() : null;
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:${min}`;
+    }
+  }
+  return '08:00';
+}
+
 function ActivityDetailModal({ 
   activity, 
-  onClose 
+  initialEditMode = false,
+  driveState,
+  userProfile,
+  onClose,
+  onActivitySaved,
+  onActivityDeleted
 }: { 
   activity: ActivityEntry | null; 
+  initialEditMode?: boolean;
+  driveState: DriveState;
+  userProfile?: UserProfile | null;
   onClose: () => void; 
+  onActivitySaved?: () => void;
+  onActivityDeleted?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState<boolean>(initialEditMode);
+  const [headline, setHeadline] = useState<string>('');
+  const [category, setCategory] = useState<ActivityCategory>('general');
+  const [timeBucket, setTimeBucket] = useState<TimeBucket>('Morning');
+  const [dateStr, setDateStr] = useState<string>('');
+  const [timeStr, setTimeStr] = useState<string>('');
+  const [transcript, setTranscript] = useState<string>('');
+  const [activeMinutes, setActiveMinutes] = useState<string | number>('');
+  const [calories, setCalories] = useState<string | number>('');
+  const [restingHeartRate, setRestingHeartRate] = useState<string | number>('');
+  const [steps, setSteps] = useState<string | number>('');
+  const [sleepHours, setSleepHours] = useState<string | number>('');
+
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (activity) {
+      setIsEditing(initialEditMode);
+      setShowDeleteConfirm(false);
+      setStatusMessage(null);
+      setHeadline(activity.title || '');
+      setCategory(activity.category || 'general');
+      setTimeBucket(activity.timeBucket || 'Morning');
+      setDateStr(getInitialDateStr(activity));
+      setTimeStr(getInitialTimeStr(activity));
+      setTranscript(activity.rawTranscript || activity.subtitle || '');
+      setActiveMinutes(activity.activeMinutes !== undefined ? activity.activeMinutes : '');
+      setCalories(activity.caloriesBurned || activity.calories || '');
+      setRestingHeartRate(activity.restingHeartRate !== undefined ? activity.restingHeartRate : '');
+      setSteps(activity.steps !== undefined ? activity.steps : '');
+      setSleepHours(activity.sleepHours !== undefined ? activity.sleepHours : '');
+    }
+  }, [activity, initialEditMode]);
+
   if (!activity) return null;
 
   const isSynced = activity.source === 'synced' || (activity.source === 'manual' && activity.id.startsWith('import-'));
@@ -1379,162 +1540,718 @@ function ActivityDetailModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
+  const handleReclassify = async () => {
+    const textToAnalyze = transcript.trim() || headline.trim();
+    if (!textToAnalyze) {
+      alert('Please enter some text or notes to re-analyze.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const localTimeStr = `${dateStr}T${timeStr}:00`;
+      const res = await fetch('/api/classify-text', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getGeminiApiKeyHeader()
+        },
+        body: JSON.stringify({
+          text: textToAnalyze,
+          clientTime: localTimeStr
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const item = Array.isArray(data.entries) && data.entries.length > 0 ? data.entries[0] : null;
+        if (item) {
+          if (item.headline) setHeadline(item.headline);
+          if (item.category) setCategory(item.category);
+          if (item.timeBucket) setTimeBucket(item.timeBucket);
+          if (typeof item.calories === 'number') setCalories(item.calories);
+          if (typeof item.caloriesBurned === 'number') setCalories(item.caloriesBurned);
+          if (typeof item.activeMinutes === 'number') setActiveMinutes(item.activeMinutes);
+          if (item.text) setTranscript(item.text);
+        }
+      } else {
+        alert('AI re-analysis was unable to process this entry.');
+      }
+    } catch (err) {
+      console.warn('Re-analysis failed:', err);
+      alert('AI re-analysis failed. Please check your network connection.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!activity || !driveState) return;
+    setIsSaving(true);
+    setStatusMessage('Saving activity updates...');
+
+    try {
+      const finalIsoDate = new Date(`${dateStr}T${timeStr}:00`).toISOString();
+
+      if (activity.isRoutine) {
+        // Routine item stored in context_memory.json
+        const contextData = await readJsonFile(driveState.token, driveState.contextFileId) || {};
+        const currentFacts = Array.isArray(contextData.facts) ? contextData.facts : [];
+
+        const updatedFacts = currentFacts.map((f: any) => {
+          const matchesId = activity.routineFactId && (f.id === activity.routineFactId || String(f.id) === activity.routineFactId);
+          const matchesText = !activity.routineFactId && f.text === (activity.rawTranscript || activity.subtitle);
+          if (matchesId || matchesText) {
+            return {
+              ...f,
+              text: transcript.trim() || headline.trim(),
+              category: category === 'general' ? 'medical' : category,
+              timeBucket: timeBucket
+            };
+          }
+          return f;
+        });
+
+        const newContextData = { ...contextData, facts: updatedFacts };
+        await writeJsonFile(driveState.token, 'context_memory.json', newContextData, driveState.mainFolderId, driveState.contextFileId);
+
+      } else {
+        // Standard health log in monthly partition
+        const logCategory: HealthLogEntry['category'] = 
+          (category === 'all' || category === 'routine') ? 'general' : category;
+
+        const finalDate = new Date(`${dateStr}T${timeStr}:00`);
+        const targetDateObj = !isNaN(finalDate.getTime()) ? finalDate : new Date();
+        const validFinalIsoDate = !isNaN(finalDate.getTime()) ? finalDate.toISOString() : new Date().toISOString();
+
+        const updatedEntry: HealthLogEntry = {
+          id: activity.id,
+          category: logCategory,
+          transcript: transcript.trim() || headline.trim(),
+          headline: headline.trim(),
+          timeBucket: timeBucket,
+          timestamp: validFinalIsoDate,
+          displayTime: targetDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          displayDate: targetDateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+          source: activity.source || 'manual',
+          activeMinutes: activeMinutes !== '' && !isNaN(Number(activeMinutes)) ? Number(activeMinutes) : undefined,
+          calories: (category === 'meal' && calories !== '' && !isNaN(Number(calories))) ? Number(calories) : (activity.calories),
+          caloriesBurned: (category === 'workout' && calories !== '' && !isNaN(Number(calories))) ? Number(calories) : (activity.caloriesBurned),
+          restingHeartRate: restingHeartRate !== '' && !isNaN(Number(restingHeartRate)) ? Number(restingHeartRate) : undefined,
+          steps: steps !== '' && !isNaN(Number(steps)) ? Number(steps) : undefined,
+          sleepHours: sleepHours !== '' && !isNaN(Number(sleepHours)) ? Number(sleepHours) : undefined
+        };
+
+        await updateHealthLogEntryInDrive(
+          driveState.token,
+          driveState.mainFolderId,
+          updatedEntry,
+          activity.rawIsoDate
+        );
+
+        // AI Context Extraction & Memory Update
+        setStatusMessage('AI extracting context & updating health profile...');
+        try {
+          const contextData = await readJsonFile(driveState.token, driveState.contextFileId);
+          const currentFacts = contextData?.facts || [];
+
+          const extractRes = await fetch('/api/extract-context', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getGeminiApiKeyHeader()
+            },
+            body: JSON.stringify({ facts: currentFacts, newLogs: [updatedEntry], userProfile })
+          });
+
+          if (extractRes.ok) {
+            const { facts: updatedFacts } = await extractRes.json();
+            if (Array.isArray(updatedFacts)) {
+              const newContextData = { ...(contextData || { schema_version: '1.0' }), facts: updatedFacts };
+              await writeJsonFile(driveState.token, 'context_memory.json', newContextData, driveState.mainFolderId, driveState.contextFileId);
+            }
+          }
+        } catch (aiErr) {
+          console.warn('AI context extraction after edit encountered a warning:', aiErr);
+        }
+
+        // Caregiver Digest update if caregivers active
+        if (driveState.familyFolderId) {
+          try {
+            const hasCaregivers = await hasActiveCaregivers(driveState.token, driveState.familyFolderId);
+            if (hasCaregivers) {
+              setStatusMessage('Updating family caregiver digest...');
+              const preferredName = userProfile?.nickname || userProfile?.displayName || 'Family Member';
+              const digestRes = await fetch('/api/generate-digest', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...getGeminiApiKeyHeader()
+                },
+                body: JSON.stringify({
+                  facts: [],
+                  recentLogs: [updatedEntry],
+                  profileName: preferredName,
+                  userProfile
+                })
+              });
+
+              if (digestRes.ok) {
+                const { digest } = await digestRes.json();
+                if (digest) {
+                  const { fileId } = await getOrCreateCareDigestFile(driveState.token, driveState.familyFolderId, preferredName);
+                  await appendCaregiverDigest(driveState.token, driveState.familyFolderId, fileId, digest);
+                }
+              }
+            }
+          } catch (digestErr) {
+            console.warn('Caregiver digest generation warning:', digestErr);
+          }
+        }
+      }
+
+      if (onActivitySaved) {
+        onActivitySaved();
+      }
+    } catch (err: any) {
+      console.error('Failed to save activity:', err);
+      alert(`Could not save changes: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
+      setStatusMessage(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!activity || !driveState) return;
+    setIsDeleting(true);
+    setStatusMessage('Deleting activity...');
+
+    try {
+      if (activity.isRoutine) {
+        const contextData = await readJsonFile(driveState.token, driveState.contextFileId) || {};
+        const currentFacts = Array.isArray(contextData.facts) ? contextData.facts : [];
+        const updatedFacts = currentFacts.filter((f: any) => {
+          if (activity.routineFactId && (f.id === activity.routineFactId || String(f.id) === activity.routineFactId)) {
+            return false;
+          }
+          if (!activity.routineFactId && f.text === (activity.rawTranscript || activity.subtitle)) {
+            return false;
+          }
+          return true;
+        });
+        const newContextData = { ...contextData, facts: updatedFacts };
+        await writeJsonFile(driveState.token, 'context_memory.json', newContextData, driveState.mainFolderId, driveState.contextFileId);
+      } else {
+        await deleteHealthLogEntryInDrive(
+          driveState.token,
+          driveState.mainFolderId,
+          activity.id,
+          activity.rawIsoDate
+        );
+      }
+
+      if (onActivityDeleted) {
+        onActivityDeleted();
+      }
+    } catch (err: any) {
+      console.error('Failed to delete activity:', err);
+      alert(`Could not delete activity: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsDeleting(false);
+      setStatusMessage(null);
+    }
+  };
+
+  const categoriesList: Array<{ key: ActivityCategory; label: string; icon: React.ReactNode }> = [
+    { key: 'workout', label: 'Workout', icon: <Dumbbell size={14} /> },
+    { key: 'meal', label: 'Meal', icon: <Utensils size={14} /> },
+    { key: 'medication', label: 'Medication', icon: <Pill size={14} /> },
+    { key: 'event', label: 'Health Event', icon: <HeartPulse size={14} /> },
+    { key: 'routine', label: 'Daily Routine', icon: <Clock size={14} /> },
+    { key: 'general', label: 'Health Note', icon: <MessageSquare size={14} /> },
+  ];
+
+  const timeBucketsList: Array<{ key: TimeBucket; label: string; icon: React.ReactNode }> = [
+    { key: 'Morning', label: 'Morning', icon: <Sunrise size={14} /> },
+    { key: 'Afternoon', label: 'Afternoon', icon: <Sun size={14} /> },
+    { key: 'Evening', label: 'Evening', icon: <Sunset size={14} /> },
+    { key: 'Night', label: 'Night', icon: <Moon size={14} /> },
+  ];
+
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div 
         className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Status banner */}
+        {statusMessage && (
+          <div className="bg-teal-50 border-b border-teal-200 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-teal-800 animate-in fade-in">
+            <Loader2 size={14} className="animate-spin text-teal-600 shrink-0" />
+            <span>{statusMessage}</span>
+          </div>
+        )}
+
         {/* Modal Header */}
         <div className="p-5 pb-4 border-b border-stone-100 flex items-start justify-between gap-3 bg-stone-50/70">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className={`p-3 rounded-2xl ${
-              activity.category === 'workout' ? 'bg-teal-100 text-teal-700' : 
-              activity.category === 'meal' ? 'bg-amber-100 text-amber-700' : 
-              activity.category === 'medication' ? 'bg-rose-100 text-rose-700' : 
-              activity.category === 'event' ? 'bg-canopy-100 text-canopy-800' : 
-              activity.category === 'routine' ? 'bg-blue-100 text-blue-700' :
-              'bg-stone-200 text-stone-700'
-            } flex-shrink-0 shadow-2xs mt-0.5`}>
-              {activity.category === 'workout' && <Dumbbell size={22} />}
-              {activity.category === 'meal' && <Utensils size={22} />}
-              {activity.category === 'medication' && <Pill size={22} />}
-              {activity.category === 'event' && <HeartPulse size={22} />}
-              {activity.category === 'routine' && <Clock size={22} />}
-              {activity.category === 'general' && <MessageSquare size={22} />}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
-                  {activity.category}
-                </span>
-                {isSynced && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/80">
-                    <RefreshCw size={10} className="text-teal-600" /> Synced
-                  </span>
-                )}
-                {activity.source === 'voice' && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
-                    <Mic size={11} className="text-stone-500" /> Voice Note
-                  </span>
-                )}
-                {activity.source === 'manual' && !isSynced && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
-                    Manual Log
-                  </span>
-                )}
+          {!isEditing ? (
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`p-3 rounded-2xl ${
+                activity.category === 'workout' ? 'bg-teal-100 text-teal-700' : 
+                activity.category === 'meal' ? 'bg-amber-100 text-amber-700' : 
+                activity.category === 'medication' ? 'bg-rose-100 text-rose-700' : 
+                activity.category === 'event' ? 'bg-canopy-100 text-canopy-800' : 
+                activity.category === 'routine' ? 'bg-blue-100 text-blue-700' :
+                'bg-stone-200 text-stone-700'
+              } flex-shrink-0 shadow-2xs mt-0.5`}>
+                {activity.category === 'workout' && <Dumbbell size={22} />}
+                {activity.category === 'meal' && <Utensils size={22} />}
+                {activity.category === 'medication' && <Pill size={22} />}
+                {activity.category === 'event' && <HeartPulse size={22} />}
+                {activity.category === 'routine' && <Clock size={22} />}
+                {activity.category === 'general' && <MessageSquare size={22} />}
               </div>
-              <h2 className="text-xl font-extrabold text-stone-900 mt-1 leading-snug break-words">
-                {activity.title}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                    {activity.category}
+                  </span>
+                  {isSynced && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/80">
+                      <RefreshCw size={10} className="text-teal-600" /> Synced
+                    </span>
+                  )}
+                  {activity.source === 'voice' && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                      <Mic size={11} className="text-stone-500" /> Voice Note
+                    </span>
+                  )}
+                  {activity.source === 'manual' && !isSynced && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                      Manual Log
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-xl font-extrabold text-stone-900 mt-1 leading-snug break-words">
+                  {activity.title}
+                </h2>
+                <p className="text-xs font-semibold text-stone-500 mt-0.5">
+                  {activity.dateLabel} • {activity.time} ({activity.dayName})
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-md border border-teal-200/60 inline-block mb-1">
+                Edit Activity
+              </span>
+              <h2 className="text-xl font-extrabold text-stone-900 leading-snug">
+                Modify Activity Details
               </h2>
-              <p className="text-xs font-semibold text-stone-500 mt-0.5">
-                {activity.dateLabel} • {activity.time} ({activity.dayName})
+              <p className="text-xs font-medium text-stone-500 mt-0.5">
+                Update notes, metrics, or time. AI will automatically re-extract health context.
               </p>
             </div>
-          </div>
+          )}
 
-          <button 
-            type="button" 
-            onClick={onClose} 
-            className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 rounded-full transition-colors flex-shrink-0"
-            aria-label="Close"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {!isEditing && (
+              <button 
+                type="button" 
+                onClick={() => setIsEditing(true)} 
+                className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-200/60 rounded-full transition-colors cursor-pointer"
+                title="Edit Activity"
+                aria-label="Edit Activity"
+              >
+                <Edit3 size={18} />
+              </button>
+            )}
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 rounded-full transition-colors cursor-pointer"
+              aria-label="Close"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-5 overflow-y-auto flex flex-col gap-4">
-          {/* Key Metric Tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {activity.activeMinutes !== undefined && activity.activeMinutes > 0 && (
-              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Duration</span>
-                <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
-                  {activity.activeMinutes} <span className="text-xs font-semibold text-stone-400">mins</span>
-                </span>
+        <div className="p-5 overflow-y-auto flex flex-col gap-4.5">
+          {!isEditing ? (
+            <>
+              {/* Key Metric Tiles */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {activity.activeMinutes !== undefined && activity.activeMinutes > 0 && (
+                  <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Duration</span>
+                    <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
+                      {activity.activeMinutes} <span className="text-xs font-semibold text-stone-400">mins</span>
+                    </span>
+                  </div>
+                )}
+                {(activity.caloriesBurned !== undefined || activity.calories !== undefined) && (
+                  <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Calories</span>
+                    <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
+                      {activity.caloriesBurned || activity.calories} <span className="text-xs font-semibold text-stone-400">kcal</span>
+                    </span>
+                  </div>
+                )}
+                {activity.steps !== undefined && activity.steps > 0 && (
+                  <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Steps</span>
+                    <span className="text-lg font-extrabold text-stone-900 mt-0.5">
+                      {activity.steps.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {activity.restingHeartRate !== undefined && (
+                  <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Resting HR</span>
+                    <span className="text-lg font-extrabold text-rose-600 mt-0.5 flex items-baseline gap-1">
+                      {activity.restingHeartRate} <span className="text-xs font-semibold text-stone-400">bpm</span>
+                    </span>
+                  </div>
+                )}
+                {activity.sleepHours !== undefined && (
+                  <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Sleep</span>
+                    <span className="text-lg font-extrabold text-teal-700 mt-0.5 flex items-baseline gap-1">
+                      {activity.sleepHours} <span className="text-xs font-semibold text-stone-400">hrs</span>
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-            {(activity.caloriesBurned !== undefined || activity.calories !== undefined) && (
-              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Calories</span>
-                <span className="text-lg font-extrabold text-stone-900 mt-0.5 flex items-baseline gap-1">
-                  {activity.caloriesBurned || activity.calories} <span className="text-xs font-semibold text-stone-400">kcal</span>
-                </span>
-              </div>
-            )}
-            {activity.steps !== undefined && activity.steps > 0 && (
-              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Steps</span>
-                <span className="text-lg font-extrabold text-stone-900 mt-0.5">
-                  {activity.steps.toLocaleString()}
-                </span>
-              </div>
-            )}
-            {activity.restingHeartRate !== undefined && (
-              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Resting HR</span>
-                <span className="text-lg font-extrabold text-rose-600 mt-0.5 flex items-baseline gap-1">
-                  {activity.restingHeartRate} <span className="text-xs font-semibold text-stone-400">bpm</span>
-                </span>
-              </div>
-            )}
-            {activity.sleepHours !== undefined && (
-              <div className="bg-stone-50 border border-stone-200/70 p-3 rounded-2xl flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Sleep</span>
-                <span className="text-lg font-extrabold text-teal-700 mt-0.5 flex items-baseline gap-1">
-                  {activity.sleepHours} <span className="text-xs font-semibold text-stone-400">hrs</span>
-                </span>
-              </div>
-            )}
-          </div>
 
-          {/* Full Record Details / Transcript */}
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
-              <FileText size={14} /> Full Record Details
-            </h3>
-            <div className="bg-stone-50/90 border border-stone-200/80 rounded-2xl p-4">
-              <FormattedActivityDetails 
-                text={activity.rawTranscript || activity.subtitle || ''} 
-                category={activity.category}
-              />
-            </div>
-          </div>
+              {/* Full Record Details / Transcript */}
+              <div className="flex flex-col gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                  <FileText size={14} /> Full Record Details
+                </h3>
+                <div className="bg-stone-50/90 border border-stone-200/80 rounded-2xl p-4">
+                  <FormattedActivityDetails 
+                    text={activity.rawTranscript || activity.subtitle || ''} 
+                    category={activity.category}
+                  />
+                </div>
+              </div>
 
-          {/* Technical Metadata */}
-          <div className="flex flex-col gap-1.5 pt-2 border-t border-stone-100">
-            <div className="flex items-center justify-between text-xs text-stone-400">
-              <span className="font-mono truncate max-w-[280px]" title={activity.id}>
-                ID: {activity.id}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-stone-100 hover:bg-stone-200/80 text-stone-700 font-bold rounded-lg transition-colors text-[11px]"
-              >
-                {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                {copied ? 'Copied' : 'Copy Log'}
-              </button>
-            </div>
-          </div>
+              {/* Technical Metadata */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-stone-100">
+                <div className="flex items-center justify-between text-xs text-stone-400">
+                  <span className="font-mono truncate max-w-[280px]" title={activity.id}>
+                    ID: {activity.id}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-stone-100 hover:bg-stone-200/80 text-stone-700 font-bold rounded-lg transition-colors text-[11px] cursor-pointer"
+                  >
+                    {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                    {copied ? 'Copied' : 'Copy Log'}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Delete confirmation banner */}
+              {showDeleteConfirm && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200/80 text-rose-900 flex flex-col gap-2.5 animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <Trash2 size={16} className="text-rose-600" />
+                    <span className="font-extrabold text-sm">Delete this activity?</span>
+                  </div>
+                  <p className="text-xs font-medium text-rose-700 leading-relaxed">
+                    This will permanently delete this record from your Google Drive health logs. This action cannot be undone.
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      <span>{isDeleting ? 'Deleting...' : 'Yes, Permanently Delete'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={isDeleting}
+                      className="px-3.5 py-2 bg-white text-stone-700 border border-stone-200 rounded-xl text-xs font-bold hover:bg-stone-50 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Title / Headline Input */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                  Headline / Title
+                </label>
+                <input 
+                  type="text" 
+                  value={headline} 
+                  onChange={(e) => setHeadline(e.target.value)}
+                  placeholder="e.g. Morning 5km Run, Oatmeal Breakfast, Blood Pressure Check"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-stone-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all bg-white"
+                />
+              </div>
+
+              {/* Category selector */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                  Category
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {categoriesList.map((c) => {
+                    const isSelected = category === c.key;
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => setCategory(c.key)}
+                        className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isSelected 
+                            ? 'bg-stone-900 text-white border-stone-900 shadow-2xs' 
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        <span className={isSelected ? 'text-teal-400' : 'text-stone-500'}>{c.icon}</span>
+                        <span className="truncate">{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Time of Day Bucket */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                  Time of Day
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {timeBucketsList.map((b) => {
+                    const isSelected = timeBucket === b.key;
+                    return (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => setTimeBucket(b.key)}
+                        className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-teal-700 text-white border-teal-700 shadow-2xs'
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        {b.icon}
+                        <span>{b.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Date & Time Picker */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1">
+                    <Calendar size={12} /> Date
+                  </label>
+                  <input 
+                    type="date" 
+                    value={dateStr}
+                    onChange={(e) => setDateStr(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-200 text-xs font-bold text-stone-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1">
+                    <Clock size={12} /> Time
+                  </label>
+                  <input 
+                    type="time" 
+                    value={timeStr}
+                    onChange={(e) => setTimeStr(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-200 text-xs font-bold text-stone-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Notes & Transcript with AI Re-classify Button */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                    Activity Notes & Description
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleReclassify}
+                    disabled={isAnalyzing || isSaving || !transcript.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200/80 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-40"
+                    title="Automatically analyze notes and update category & metrics with AI"
+                  >
+                    {isAnalyzing ? (
+                      <Loader2 size={13} className="animate-spin text-teal-600" />
+                    ) : (
+                      <Sparkles size={13} className="text-teal-600" />
+                    )}
+                    <span>{isAnalyzing ? 'Analyzing...' : 'Re-analyze with AI'}</span>
+                  </button>
+                </div>
+                <textarea 
+                  rows={4}
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder="Enter detailed notes, workout sets, meal ingredients, vitals, or medications..."
+                  className="w-full px-3.5 py-3 rounded-2xl border border-stone-200 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-600 transition-all bg-white min-h-[120px] leading-relaxed resize-y"
+                />
+              </div>
+
+              {/* Key Numeric Metrics */}
+              <div className="border border-stone-200/80 rounded-2xl p-3.5 bg-stone-50/60 flex flex-col gap-2.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-stone-600">
+                  Key Metrics (Optional)
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase text-stone-500">Duration (mins)</label>
+                    <input 
+                      type="number"
+                      value={activeMinutes}
+                      onChange={(e) => setActiveMinutes(e.target.value)}
+                      placeholder="e.g. 30"
+                      className="px-3 py-1.5 rounded-lg border border-stone-200 text-xs font-bold text-stone-800 bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase text-stone-500">Calories (kcal)</label>
+                    <input 
+                      type="number"
+                      value={calories}
+                      onChange={(e) => setCalories(e.target.value)}
+                      placeholder="e.g. 250"
+                      className="px-3 py-1.5 rounded-lg border border-stone-200 text-xs font-bold text-stone-800 bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase text-stone-500">Steps</label>
+                    <input 
+                      type="number"
+                      value={steps}
+                      onChange={(e) => setSteps(e.target.value)}
+                      placeholder="e.g. 5000"
+                      className="px-3 py-1.5 rounded-lg border border-stone-200 text-xs font-bold text-stone-800 bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase text-stone-500">Resting HR (bpm)</label>
+                    <input 
+                      type="number"
+                      value={restingHeartRate}
+                      onChange={(e) => setRestingHeartRate(e.target.value)}
+                      placeholder="e.g. 68"
+                      className="px-3 py-1.5 rounded-lg border border-stone-200 text-xs font-bold text-stone-800 bg-white"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase text-stone-500">Sleep (hours)</label>
+                    <input 
+                      type="number"
+                      step="0.1"
+                      value={sleepHours}
+                      onChange={(e) => setSleepHours(e.target.value)}
+                      placeholder="e.g. 7.5"
+                      className="px-3 py-1.5 rounded-lg border border-stone-200 text-xs font-bold text-stone-800 bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-stone-100 bg-stone-50/50 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-stone-900 text-white font-bold text-sm hover:bg-stone-800 transition-colors shadow-xs"
-          >
-            Close
-          </button>
+        <div className="p-4 border-t border-stone-100 bg-stone-50/70 flex items-center justify-between gap-2">
+          {!isEditing ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditing(true);
+                  setShowDeleteConfirm(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs transition-colors shadow-2xs cursor-pointer"
+                >
+                  <Edit3 size={14} />
+                  <span>Edit Activity</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-xl bg-stone-200/80 hover:bg-stone-300/80 text-stone-700 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isSaving || isDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditing(false);
+                    setShowDeleteConfirm(false);
+                  }}
+                  disabled={isSaving || isDeleting}
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving || isDeleting || isAnalyzing || !headline.trim()}
+                  className="inline-flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1597,12 +2314,14 @@ function FilterChip({ label, active, onClick }: { label: string, active: boolean
 function ActivityRow({ 
   activity, 
   onToggle,
-  onSelect 
+  onSelect,
+  onEdit
 }: { 
   key?: string; 
   activity: ActivityEntry; 
   onToggle: () => void;
   onSelect: (act: ActivityEntry) => void;
+  onEdit?: (act: ActivityEntry) => void;
 }) {
   const getCategoryConfig = () => {
     switch (activity.category) {
@@ -1744,6 +2463,20 @@ function ActivityRow({
 
       {/* Action / Status Toggle if applicable */}
       <div className="flex items-center gap-1 flex-shrink-0 mt-1" onClick={(e) => e.stopPropagation()}>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(activity);
+            }}
+            className="p-2 text-stone-400 hover:text-teal-700 hover:bg-stone-200/60 rounded-full transition-colors cursor-pointer"
+            title="Edit activity"
+            aria-label="Edit activity"
+          >
+            <Edit3 size={17} />
+          </button>
+        )}
         {isInteractive ? (
           <button 
             onClick={onToggle}

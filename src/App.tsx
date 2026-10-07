@@ -464,6 +464,7 @@ export default function App() {
             refreshTrigger={logsRefreshTrigger} 
             userProfile={userProfile}
             user={user}
+            onActivityUpdated={() => setLogsRefreshTrigger(prev => prev + 1)}
           />
         )}
         {activeTab === 'coaching' && (
