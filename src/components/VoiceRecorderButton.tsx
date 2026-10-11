@@ -6,6 +6,7 @@ import {
   X, 
   Loader2, 
   Check, 
+  CheckCircle2,
   Sparkles, 
   Play, 
   Pause, 
@@ -41,7 +42,7 @@ interface VoiceRecorderButtonProps {
   standalone?: boolean;
 }
 
-type RecordingState = 'idle' | 'recording' | 'transcribing' | 'review' | 'saving' | 'extracting' | 'generating_digest' | 'extraction_error' | 'success';
+type RecordingState = 'idle' | 'recording' | 'transcribing' | 'confirm' | 'review' | 'saving' | 'extracting' | 'generating_digest' | 'extraction_error' | 'success';
 
 interface ReviewEntryItem {
   id: string;
@@ -113,6 +114,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
 
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcript, setTranscript] = useState('');
+  const [confirmationMessage, setConfirmationMessage] = useState<string>('');
   const [reviewEntries, setReviewEntries] = useState<ReviewEntryItem[]>([]);
   const [isClassifying, setIsClassifying] = useState(false);
   const [showRawTranscript, setShowRawTranscript] = useState(false);
@@ -334,6 +336,7 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
         }
       });
 
+      const detectedMessage = data.confirmationMessage || '';
       // Handle multi-entry classification from LLM
       if (Array.isArray(data.entries) && data.entries.length > 0) {
         const items: ReviewEntryItem[] = data.entries.map((item: any, idx: number) => ({
@@ -347,14 +350,19 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
           activeMinutes: typeof item.activeMinutes === 'number' ? item.activeMinutes : (item.activeMinutes ? Number(item.activeMinutes) : undefined)
         }));
         setReviewEntries(items);
+        setConfirmationMessage(detectedMessage || `We noted: ${items.map(i => i.headline || i.text).slice(0, 3).join(' & ')}.`);
+        setModalState('confirm');
       } else if (detectedText) {
-        setReviewEntries([{
+        const singleItem: ReviewEntryItem = {
           id: `entry-${Date.now()}-0`,
           category: 'general',
           text: detectedText,
           headline: extractFallbackHeadline(detectedText, 'general'),
           timeBucket: getLocalTimeBucket(detectedText, new Date())
-        }]);
+        };
+        setReviewEntries([singleItem]);
+        setConfirmationMessage(detectedMessage || `We noted: ${singleItem.headline || singleItem.text}.`);
+        setModalState('confirm');
       } else {
         setReviewEntries([{
           id: `entry-${Date.now()}-0`,
@@ -363,9 +371,8 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
           headline: '',
           timeBucket: getLocalTimeBucket('', new Date())
         }]);
+        setModalState('review');
       }
-
-      setModalState('review');
     } catch (err: any) {
       console.error('Transcription error:', err);
       const sanitized = sanitizeError(err);
@@ -1015,6 +1022,99 @@ export default function VoiceRecorderButton({ driveState, onLogSaved, visible = 
             <p className="text-sm text-stone-500 font-medium">
               Your categorized health entries have been safely stored in your private Google Drive.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* 1-Tap Conversational Confirmation Modal (Direct Yes/No) */}
+      {modalState === 'confirm' && renderPortal(
+        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4 pb-6 pb-safe">
+          <div className="bg-white max-w-sm sm:max-w-md w-full rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-stone-200/80 p-6 sm:p-7 gap-5 text-center items-center">
+            
+            {/* Friendly icon */}
+            <div className="w-16 h-16 rounded-3xl bg-tree-50 text-tree-700 border border-tree-200 flex items-center justify-center shadow-xs">
+              <CheckCircle2 size={34} />
+            </div>
+
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-tree-700 bg-tree-50 px-3 py-1 rounded-full border border-tree-100">
+                Voice Note Captured
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-stone-900 mt-2.5">
+                Here's what we noted
+              </h3>
+              <p className="text-sm sm:text-base text-stone-700 font-semibold mt-2 leading-relaxed bg-stone-50 p-4 rounded-2xl border border-stone-200/70">
+                "{confirmationMessage || 'We noted your health update.'}"
+              </p>
+            </div>
+
+            {/* Clean summary list of parsed items with icons */}
+            <div className="w-full flex flex-col gap-2 text-left max-h-48 overflow-y-auto">
+              {reviewEntries.map((entry) => {
+                const getCategoryIcon = () => {
+                  switch (entry.category) {
+                    case 'workout': return <Dumbbell size={16} className="text-teal-700" />;
+                    case 'meal': return <Utensils size={16} className="text-orange-700" />;
+                    case 'medication': return <Pill size={16} className="text-rose-700" />;
+                    case 'event': return <HeartPulse size={16} className="text-sky-700" />;
+                    default: return <MessageSquare size={16} className="text-stone-600" />;
+                  }
+                };
+
+                return (
+                  <div key={entry.id} className="p-3 rounded-xl bg-stone-50 border border-stone-200/80 flex items-center justify-between text-xs gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-1.5 rounded-lg bg-white border border-stone-200 shrink-0">
+                        {getCategoryIcon()}
+                      </div>
+                      <div className="flex flex-col truncate">
+                        <span className="font-bold text-stone-900 truncate">
+                          {entry.headline || entry.text}
+                        </span>
+                        <span className="text-[10px] text-stone-500 font-medium capitalize">
+                          {entry.timeBucket} • {entry.category}
+                        </span>
+                      </div>
+                    </div>
+                    {entry.calories ? (
+                      <span className="text-[11px] font-bold text-stone-500 bg-white px-2 py-0.5 rounded-md border border-stone-200 shrink-0">
+                        {entry.calories} kcal
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Direct Confirmation Action Buttons */}
+            <div className="flex flex-col w-full gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={saveToHealthLog}
+                className="w-full py-3.5 bg-tree-700 hover:bg-tree-800 text-white font-bold rounded-2xl text-base flex items-center justify-center gap-2 shadow-lg shadow-tree-900/20 active:scale-98 transition-all cursor-pointer"
+              >
+                <Check size={20} strokeWidth={2.5} />
+                <span>Looks Good, Save!</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalState('review')}
+                className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Edit3 size={14} />
+                <span>No, change details</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="w-full py-1 text-stone-400 hover:text-stone-600 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Cancel and discard
+              </button>
+            </div>
+
           </div>
         </div>
       )}

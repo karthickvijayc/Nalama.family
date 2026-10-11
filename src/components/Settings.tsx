@@ -111,6 +111,41 @@ export default function Settings({
   // Keep screen awake while performing complete Drive context reset
   useWakeLock(isResettingAll, 'resetting_all_context');
 
+  // Developer Mode toggle (hidden behind 5 taps on app version footer)
+  const [devModeUnlocked, setDevModeUnlocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nalama_developer_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [versionTapCount, setVersionTapCount] = useState(0);
+  const [devToast, setDevToast] = useState<string | null>(null);
+
+  const toggleDevMode = (unlocked: boolean) => {
+    setDevModeUnlocked(unlocked);
+    try {
+      localStorage.setItem('nalama_developer_mode', unlocked ? 'true' : 'false');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleVersionTap = () => {
+    const nextCount = versionTapCount + 1;
+    setVersionTapCount(nextCount);
+    if (nextCount >= 5) {
+      const nextState = !devModeUnlocked;
+      toggleDevMode(nextState);
+      setVersionTapCount(0);
+      setDevToast(nextState ? '🛠️ Developer mode unlocked!' : 'Developer mode hidden');
+      setTimeout(() => setDevToast(null), 3000);
+    } else if (nextCount >= 2) {
+      setDevToast(`${5 - nextCount} more taps to ${devModeUnlocked ? 'hide' : 'unlock'} Developer Mode`);
+      setTimeout(() => setDevToast(null), 1500);
+    }
+  };
+
   // External data import toggle state
   const [enableExternalImport, setEnableExternalImport] = useState(userProfile?.enableExternalDataImport || false);
   const [isTogglingImport, setIsTogglingImport] = useState(false);
@@ -133,6 +168,7 @@ export default function Settings({
 
   // Profile section state
   const [nickname, setNickname] = useState(userProfile?.nickname || '');
+  const [calmMode, setCalmMode] = useState<boolean>(() => userProfile?.calmMode ?? (Boolean(userProfile?.age && Number(userProfile.age) >= 60)));
   const [age, setAge] = useState(userProfile?.age ? String(userProfile.age) : '');
   const [gender, setGender] = useState(userProfile?.gender || '');
   const [height, setHeight] = useState(userProfile?.height || '');
@@ -564,6 +600,7 @@ export default function Settings({
       healthGoals: healthGoals.trim(),
       primaryLanguage: primaryLanguage.trim(),
       notes: notes.trim(),
+      calmMode: calmMode,
       userTargets: userTargetsData,
       updatedAt: new Date().toISOString()
     };
@@ -751,6 +788,29 @@ export default function Settings({
                   <option value="Other">Other</option>
                 </select>
               </div>
+            </div>
+
+            {/* Calm Senior Mode Toggle */}
+            <div className="flex items-center justify-between p-4 bg-stone-50/90 rounded-2xl border border-stone-200/80">
+              <div className="flex flex-col pr-3">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold text-stone-900">Calm Mode (Senior-Friendly)</span>
+                  <span className="text-[10px] font-bold text-tree-800 bg-tree-50 px-2 py-0.5 rounded-full border border-tree-100">
+                    Recommended for Age 60+
+                  </span>
+                </div>
+                <span className="text-[11px] text-stone-500 font-medium leading-relaxed mt-0.5">
+                  Streamlines the Home dashboard into large, clean daily essentials (walk, medications, sleep) without numeric clutter.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalmMode(!calmMode)}
+                className={`w-12 h-7 flex items-center rounded-full p-1 transition-colors cursor-pointer shrink-0 ${calmMode ? 'bg-tree-600' : 'bg-stone-300'}`}
+                aria-label="Toggle Calm Mode"
+              >
+                <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform ${calmMode ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
             </div>
 
             {/* Height & Weight */}
@@ -1534,37 +1594,101 @@ export default function Settings({
         </div>
       </section>
 
-      {/* Advanced Settings Section */}
-      <section className="flex flex-col gap-4 pt-6 border-t border-stone-200" id="settings-advanced-section">
-        <details 
-          id="advanced-settings-details"
-          className="group bg-white rounded-[2rem] border border-stone-200 shadow-sm overflow-hidden transition-all"
-        >
-          <summary className="list-none p-5 sm:p-6 flex items-center justify-between cursor-pointer select-none hover:bg-stone-50/70 transition-colors">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200/80 text-teal-800 flex items-center justify-center shrink-0">
+      {/* Account & Sign Out Section */}
+      <section className="flex flex-col gap-4 pt-6 border-t border-stone-200" id="settings-account-section">
+        <div className="flex items-center gap-2 px-1">
+          <User size={20} className="text-stone-900" />
+          <h2 className="text-xl font-bold text-stone-900">Account</h2>
+        </div>
+
+        <div className="bg-white p-5 rounded-[2rem] border border-stone-200 shadow-sm flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {userPhoto ? (
+                <img src={userPhoto} alt={googleDisplayName} className="w-11 h-11 rounded-full border border-stone-200 shrink-0 object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-teal-100 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-base shrink-0">
+                  {googleDisplayName[0]?.toUpperCase() || 'U'}
+                </div>
+              )}
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-bold text-stone-900 truncate">{googleDisplayName}</span>
+                <span className="text-xs font-medium text-stone-500 truncate">{googleEmail}</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+              Connected
+            </span>
+          </div>
+
+          <p className="text-xs font-medium text-stone-500 leading-relaxed">
+            Your personal wellness files and caregiver digests are stored in your Google Drive. Signing out will end your session on this device.
+          </p>
+
+          <button 
+            type="button"
+            onClick={onLogout}
+            className="w-full bg-rose-50 hover:bg-rose-100 active:scale-98 text-rose-700 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors border border-rose-200/50 text-xs cursor-pointer"
+            id="settings-sign-out-btn"
+          >
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Developer & Advanced Diagnostics Section (Hidden for families by default; tap app version 5 times to reveal) */}
+      {devModeUnlocked && (
+        <section className="flex flex-col gap-4 pt-6 border-t border-amber-200" id="settings-advanced-section">
+          <div className="bg-amber-50 border border-amber-200/90 rounded-[2rem] p-5 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 border border-amber-300 text-amber-800 flex items-center justify-center shrink-0">
                 <Sliders size={20} />
               </div>
               <div className="flex flex-col text-left">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-stone-900">Advanced Settings</h2>
-                  <span className="text-[10px] font-bold tracking-wider uppercase bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full border border-stone-200">
-                    Storage • API • Account
+                  <h2 className="text-base font-bold text-stone-900">Developer & Diagnostics Mode</h2>
+                  <span className="text-[10px] font-bold tracking-wider uppercase bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
+                    Active
                   </span>
                 </div>
-                <p className="text-xs text-stone-500 font-medium mt-0.5">
-                  Google Drive storage, custom Gemini API key (BYOK), account sign out & data reset
+                <p className="text-xs text-stone-600 font-medium mt-0.5">
+                  BYOK Gemini key, Drive storage internals, operational telemetry & context reset
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1 text-xs font-bold text-teal-700 bg-teal-50/80 hover:bg-teal-100/80 px-3 py-1.5 rounded-xl border border-teal-200/60 transition-colors shrink-0 ml-2">
-              <span className="group-open:hidden">Show</span>
-              <span className="hidden group-open:inline">Hide</span>
-              <ChevronDown size={14} className="transform transition-transform group-open:rotate-180 text-teal-700" />
-            </div>
-          </summary>
 
-          <div className="p-5 sm:p-6 pt-3 flex flex-col gap-6 border-t border-stone-150 bg-stone-50/30 animate-in fade-in duration-200">
+            <button
+              type="button"
+              onClick={() => toggleDevMode(false)}
+              className="text-xs font-bold text-amber-900 hover:text-amber-950 px-3 py-1.5 bg-white hover:bg-amber-100 rounded-xl border border-amber-300 transition-colors shrink-0 cursor-pointer"
+            >
+              Hide Tools
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-6">
+            {/* Developer Schema Guide */}
+            {onOpenDeveloperGuide && (
+              <div className="bg-white rounded-2xl border border-stone-200 p-4.5 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center shrink-0">
+                    <BookOpen size={18} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-stone-900">Developer Schema & API Guide</span>
+                    <span className="text-[11px] text-stone-500">JSON schemas, Tasker automations & Google Apps Script</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenDeveloperGuide}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-800 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Open Guide
+                </button>
+              </div>
+            )}
             
             {/* 1. Google Drive Storage */}
             <div className="flex flex-col gap-3" id="settings-drive-storage">
@@ -1785,49 +1909,7 @@ export default function Settings({
               <DiagnosticsViewer />
             </div>
 
-            {/* 4. Account & Sign Out */}
-            <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80" id="settings-account-section">
-              <div className="flex items-center gap-2 px-1">
-                <User size={18} className="text-stone-900" />
-                <h3 className="text-base font-bold text-stone-900">Account</h3>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {userPhoto ? (
-                      <img src={userPhoto} alt={googleDisplayName} className="w-10 h-10 rounded-full border border-stone-200 shrink-0" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-teal-100 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-sm shrink-0">
-                        {googleDisplayName[0]?.toUpperCase() || 'U'}
-                      </div>
-                    )}
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-sm font-bold text-stone-900 truncate">{googleDisplayName}</span>
-                      <span className="text-xs font-medium text-stone-500 truncate">{googleEmail}</span>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
-                    Active Session
-                  </span>
-                </div>
-
-                <p className="text-xs font-medium text-stone-500 leading-relaxed">
-                  Signing out will disconnect nalama family from your Google Drive. You will no longer be able to use the app, record health updates, or view your profiles until you sign back in.
-                </p>
-
-                <button 
-                  onClick={onLogout}
-                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors active:scale-98 border border-rose-200/50 text-xs cursor-pointer"
-                  id="settings-sign-out-btn"
-                >
-                  <LogOut size={16} />
-                  <span>Sign Out</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 4. Reset Application Context */}
+            {/* 4. Data Management & Context Reset */}
             <div className="flex flex-col gap-3 pt-3 border-t border-stone-200/80">
               <div className="flex items-center gap-2 px-1">
                 <AlertCircle size={18} className="text-rose-600" />
@@ -1862,8 +1944,8 @@ export default function Settings({
             </div>
 
           </div>
-        </details>
-      </section>
+        </section>
+      )}
 
       {/* Brand & About Footer */}
       <div className="flex flex-col items-center justify-center gap-2 pt-6 pb-4 text-center">
@@ -1877,9 +1959,25 @@ export default function Settings({
           </div>
           <span className="text-xs font-semibold text-tree-700">Private Family Health Assistant</span>
           <span className="text-[11px] text-stone-400 mt-0.5">Offline-Ready PWA • Stored in Google Drive</span>
-          <span className="text-[11px] text-stone-400 font-mono mt-1">App Version: v2.1.0 (Beta)</span>
+          <button
+            type="button"
+            onClick={handleVersionTap}
+            className="text-[11px] text-stone-400 hover:text-stone-600 font-mono mt-1 cursor-pointer select-none transition-colors"
+            title="Tap 5 times to unlock Developer Mode"
+          >
+            App Version: v2.1.0 (Beta){devModeUnlocked ? ' • 🛠️ Dev' : ''}
+          </button>
         </div>
       </div>
+
+      {/* Developer Mode Toast Prompt */}
+      {devToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="bg-stone-900/90 text-white backdrop-blur-md px-4 py-2 rounded-full shadow-2xl border border-white/10 text-xs font-bold tracking-wide">
+            {devToast}
+          </div>
+        </div>
+      )}
 
       {/* Reset All Context Confirmation Modal */}
       {showResetAllConfirm && (

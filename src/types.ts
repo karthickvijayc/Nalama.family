@@ -147,6 +147,9 @@ export interface UserProfile {
   // Intake onboarding completion flag
   isIntakeComplete?: boolean;
 
+  // Senior-friendly Calm Mode (auto-enabled by age >= 60, toggleable)
+  calmMode?: boolean;
+
   // External Health & Workout Data Import Settings
   enableExternalDataImport?: boolean;
   lastImportSyncTimestamp?: string;

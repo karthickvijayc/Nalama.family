@@ -322,11 +322,13 @@ CRITICAL RULES FOR EVENT INTEGRITY (DO NOT OVER-SPLIT):
 - For ANY "meal" category entry (meals, snacks, drinks), if the user does NOT explicitly state the calories, provide your best reasonable estimate for the total calories of that meal in the 'calories' field. If they do explicitly state it, use their number.
 - For ANY "workout" category entry, if the user does NOT explicitly state the calories burned, provide your best reasonable estimate in the 'caloriesBurned' field. If they do explicitly state it, use their number.
 - For ANY "workout" category entry or any physical activity (such as walking, running, cycling, swimming, yoga, sports, gardening, chores), extract or estimate the duration in minutes and provide it as an integer in the 'activeMinutes' field (e.g., "walked for 20 minutes" -> activeMinutes: 20, "1 hour gym session" -> activeMinutes: 60, "walked 3 km" -> activeMinutes: 35).
-- If no speech or only silence is detected, return an empty transcription string and an empty entries array.
+- If no speech or only silence is detected, return an empty transcription string, an empty confirmationMessage, and an empty entries array.
+- For the 'confirmationMessage' field, generate a warm, friendly, senior-appropriate confirmation sentence in natural language summarizing what was noted (e.g. "We noted: 20-minute morning walk and your blood pressure tablet." or "We noted: Idli with sambar for breakfast.").
 
 Return ONLY valid JSON matching this schema:
 {
   "transcription": "full verbatim transcription",
+  "confirmationMessage": "We noted: 20-minute morning walk and your blood pressure tablet.",
   "entries": [
     {
       "category": "workout" | "meal" | "medication" | "event" | "general",
@@ -427,8 +429,11 @@ Return ONLY valid JSON matching this schema:
 
       console.log(`[API /transcribe] Success with model: ${result.model}`);
 
-      let parsed: { transcription?: string; entries?: Array<{ category: string; headline?: string; timeBucket?: string; text: string; calories?: number;
-  caloriesBurned?: number; activeMinutes?: number }> } = {};
+      let parsed: { 
+        transcription?: string; 
+        confirmationMessage?: string; 
+        entries?: Array<{ category: string; headline?: string; timeBucket?: string; text: string; calories?: number; caloriesBurned?: number; activeMinutes?: number }> 
+      } = {};
       try {
         parsed = JSON.parse(result.text);
       } catch (parseErr) {
@@ -493,8 +498,15 @@ Return ONLY valid JSON matching this schema:
         ];
       }
 
+      let confirmationMessage = parsed.confirmationMessage || "";
+      if (!confirmationMessage && entries.length > 0) {
+        const summaryParts = entries.map((e) => e.headline || e.text).slice(0, 3);
+        confirmationMessage = `We noted: ${summaryParts.join(" and ")}.`;
+      }
+
       res.json({
         transcription,
+        confirmationMessage,
         entries,
         model: result.model,
       });
@@ -524,7 +536,11 @@ Return ONLY valid JSON matching this schema:
         },
       });
 
-      let parsed: { transcription?: string; entries?: Array<{ category: string; headline?: string; timeBucket?: string; text: string; calories?: number }> } = {};
+      let parsed: { 
+        transcription?: string; 
+        confirmationMessage?: string; 
+        entries?: Array<{ category: string; headline?: string; timeBucket?: string; text: string; calories?: number }> 
+      } = {};
       try {
         parsed = JSON.parse(result.text);
       } catch (parseErr) {
@@ -585,8 +601,15 @@ Return ONLY valid JSON matching this schema:
         ];
       }
 
+      let confirmationMessage = parsed.confirmationMessage || "";
+      if (!confirmationMessage && entries.length > 0) {
+        const summaryParts = entries.map((e) => e.headline || e.text).slice(0, 3);
+        confirmationMessage = `We noted: ${summaryParts.join(" and ")}.`;
+      }
+
       res.json({
         transcription: parsed.transcription || text.trim(),
+        confirmationMessage,
         entries,
         model: result.model,
       });
@@ -1020,6 +1043,7 @@ User Demographics & Baseline:
 - Health Goals: ${userProfile.healthGoals || "General wellness & vitality"}
 - Target Calories: ${userProfile.userTargets?.calories || userProfile.aiTargets?.calories || "2000"} kcal
 - Target Active Time: ${userProfile.userTargets?.activeTimeMins || userProfile.aiTargets?.activeTimeMins || "30"} mins
+- Primary Language: ${userProfile.primaryLanguage || "English"}
 - Personal Notes: ${userProfile.notes || "None"}
 ` : "";
 
@@ -1031,7 +1055,18 @@ User Demographics & Baseline:
         ? `\nRecent Activity & Health Logs:\n${JSON.stringify(recentLogs.slice(0, 15), null, 2)}` 
         : "\nNo recent activity logs available.";
 
+      const culturalToneGuidance = `
+Cultural Tone & Language Guidelines:
+- Primary/preferred language: ${userProfile?.primaryLanguage || "English"}.
+- Maintain a warm, calm, respectful, family-oriented tone suitable for older adults and family members.
+- Where appropriate when greeting, use respectful cultural phrasing (e.g., Tamil: "வணக்கம்", Telugu: "నమస్కారం", Hindi: "नमस्ते / प्रणाम", Malayalam: "നമസ്കാരം").
+- If the user writes in English, reply in English. If they mix their regional language (Tanglish, Hinglish, Telugu, Malayalam), match their cadence naturally and respectfully.
+- Avoid intimidating clinical jargon; provide reassuring, practical wellness encouragement.
+`;
+
       let systemInstruction = `${baseRoomInstruction}
+
+${culturalToneGuidance}
 
 ${profileStr}
 ${factsStr}

@@ -193,8 +193,9 @@ export default function Coaching({
     medical: '',
     reflection: ''
   });
+  const [pendingPromptForRollover, setPendingPromptForRollover] = useState<string | null>(null);
 
-  // Token-aware context saturation tracking per room
+  // Token-aware context saturation tracking per room (kept in background)
   const [roomTokenUsage, setRoomTokenUsage] = useState<Record<CoachingRoomId, RoomTokenUsage>>({
     workout: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' },
     diet: { tokens: 0, isExact: false, model: 'gemini-3.8-flash' },
@@ -595,9 +596,22 @@ export default function Coaching({
     }
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string, bypassRolloverCheck: boolean = false) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || !activeRoomId || isSendingMessage) return;
+
+    // Check if the current conversation in this room has crossed the focus threshold
+    const messages = roomMessages[activeRoomId] || [];
+    const activeUsage = roomTokenUsage[activeRoomId] || { tokens: 0, isExact: false, model: 'gemini-3.8-flash' };
+    const currentTokens = activeUsage.tokens > 0 
+      ? activeUsage.tokens 
+      : estimateRoomTokens(messages, bridgeContexts[activeRoomId] || '');
+
+    // If crossed threshold, prompt user to rollover with a bridge summary instead of continuing unbounded
+    if (!bypassRolloverCheck && currentTokens >= SESSION_FOCUS_BUDGET && messages.length >= 6) {
+      setPendingPromptForRollover(text);
+      return;
+    }
 
     setInputMessage('');
     setChatError('');
@@ -769,107 +783,43 @@ export default function Coaching({
     return (
       <div className="flex flex-col min-h-screen pt-4 pb-28 relative">
         {/* Room Header */}
-        <header className="flex flex-col gap-2 pb-3 border-b border-stone-200/80 sticky top-0 bg-[#F9F7F4] z-10">
-          <div className="flex items-center gap-3">
+        <header className="flex items-center justify-between pb-3 border-b border-stone-200/80 sticky top-0 bg-[#F9F7F4] z-10 px-1">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setActiveRoomId(null)}
-              className="p-2 -ml-2 rounded-2xl hover:bg-stone-200/60 text-stone-700 transition-colors active:scale-95"
+              className="p-2 -ml-1 rounded-2xl hover:bg-stone-200/60 text-stone-700 transition-colors active:scale-95 shrink-0 cursor-pointer"
               aria-label="Back to coaching rooms"
             >
               <ArrowLeft size={22} />
             </button>
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="p-2.5 rounded-2xl bg-white border border-stone-200/80 shadow-xs flex-shrink-0">
-                {roomConfig.icon}
+            <div className="p-2.5 rounded-2xl bg-white border border-stone-200/80 shadow-xs flex-shrink-0">
+              {roomConfig.icon}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-bold text-stone-900 truncate">
+                  {roomConfig.title}
+                </h1>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-200/80 text-stone-700 flex-shrink-0">
+                  {roomConfig.badge}
+                </span>
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-bold text-stone-900 truncate">
-                    {roomConfig.title}
-                  </h1>
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-stone-200/80 text-stone-700 flex-shrink-0">
-                    {roomConfig.badge}
-                  </span>
-                </div>
-                <p className="text-xs text-stone-500 truncate font-medium">
-                  {roomConfig.subtitle}
-                </p>
-              </div>
+              <p className="text-xs text-stone-500 truncate font-medium">
+                {roomConfig.subtitle}
+              </p>
             </div>
           </div>
 
-          {/* Token-Aware Context Saturation Meter */}
-          <div className="flex flex-col gap-1 w-full border-t border-stone-150 pt-2 px-1 mt-1">
-            <div className="flex justify-between items-center text-[10px] font-bold text-stone-500">
-              <span className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-stone-600 font-semibold">Context Usage:</span>
-                <span className="font-extrabold text-stone-900">
-                  {currentTokens.toLocaleString()} tokens
-                </span>
-                <span className={`px-1.5 py-0.5 text-[9px] rounded-md font-bold ${
-                  focusPercentage >= 80 ? 'bg-amber-100 text-amber-800' :
-                  focusPercentage >= 50 ? 'bg-sky-100 text-sky-800' :
-                  'bg-tree-100 text-tree-800'
-                }`}>
-                  {focusPercentage >= 80 ? 'Deep Thread' : focusPercentage >= 50 ? 'Active' : 'Optimal'}
-                </span>
-                <span className="text-[9px] text-stone-400 font-normal">
-                  ({modelName} • {modelWindowPct}% of 1M limit)
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowResetConfirm(true)}
-                className="text-tree-700 hover:text-tree-800 underline font-bold"
-              >
-                New Chat
-              </button>
-            </div>
-            <div 
-              className="h-1.5 w-full bg-stone-200 rounded-full overflow-hidden cursor-help"
-              title={`${currentTokens.toLocaleString()} tokens (${focusPercentage}% of 32k focus budget; ${modelWindowPct}% of 1M limit on ${modelName})`}
-            >
-              <div 
-                className={`h-full rounded-full transition-all duration-500 ${
-                  focusPercentage >= 80 ? 'bg-amber-500' :
-                  focusPercentage >= 50 ? 'bg-sky-500' : 'bg-tree-600'
-                }`}
-                style={{ width: `${Math.max(currentTokens > 0 ? 3 : 0, focusPercentage)}%` }}
-              />
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowResetConfirm(true)}
+            className="px-3 py-1.5 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ml-2"
+            title="Start a new conversation"
+          >
+            <RefreshCw size={13} />
+            <span>New Chat</span>
+          </button>
         </header>
-
-        {/* Nudge Alert Modal if context is reaching high depth */}
-        {focusPercentage >= 80 && (
-          <div className="bg-amber-50 border border-amber-200 p-4 rounded-3xl flex flex-col gap-3 mx-1 mt-3 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-start gap-2.5">
-              <Sparkles size={18} className="text-amber-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-xs font-bold text-stone-900">Coaching thread is getting long (~{Math.round(currentTokens / 1000)}k tokens)</p>
-                <p className="text-[11px] font-medium text-stone-600 leading-relaxed mt-1">
-                  For faster response times and razor-sharp advice on new goals, consider starting a fresh chat. You can use Smart Bridge to continue with a compact summary of this thread.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button
-                type="button"
-                onClick={() => handleResetChat(true)}
-                className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-xl shadow-2xs transition-colors"
-              >
-                Continue Current Topic (Smart Bridge)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleResetChat(false)}
-                className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-[11px] font-bold rounded-xl transition-colors"
-              >
-                Fresh Start
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Chat Messages Area */}
         <div className="flex-1 flex flex-col gap-4 pt-4 pb-36 overflow-y-auto">
@@ -1103,6 +1053,63 @@ export default function Coaching({
                   type="button"
                   onClick={() => setShowResetConfirm(false)}
                   className="w-full bg-stone-100 hover:bg-stone-200 text-stone-600 font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center transition-transform active:scale-98"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Automatic Rollover Prompt when user sends a prompt in a long conversation */}
+        {pendingPromptForRollover && (
+          <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-6 z-50">
+            <div className="bg-[#F9F7F4] rounded-[2rem] border border-stone-200 shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-stone-900">Start a fresh conversation?</h3>
+                  <p className="text-xs font-medium text-stone-600 leading-relaxed mt-1">
+                    This discussion has covered a lot of ground. Starting a fresh chat keeps recommendations fast, accurate, and tailored to your newest questions.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const text = pendingPromptForRollover;
+                    setPendingPromptForRollover(null);
+                    await handleResetChat(true);
+                    setTimeout(() => {
+                      handleSendMessage(text, true);
+                    }, 50);
+                  }}
+                  className="w-full bg-tree-700 hover:bg-tree-800 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-98 cursor-pointer"
+                >
+                  <Sparkles size={16} />
+                  <span>Start Fresh with Summary (Recommended)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = pendingPromptForRollover;
+                    setPendingPromptForRollover(null);
+                    handleSendMessage(text, true);
+                  }}
+                  className="w-full bg-white hover:bg-stone-50 text-stone-800 font-bold py-2.5 px-4 rounded-xl border border-stone-200/80 text-xs flex items-center justify-center transition-transform active:scale-98 cursor-pointer"
+                >
+                  Continue in Current Thread
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPendingPromptForRollover(null)}
+                  className="w-full py-2 text-stone-400 hover:text-stone-600 font-bold text-xs text-center transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

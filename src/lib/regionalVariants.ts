@@ -1,5 +1,32 @@
 export type RegionalVariantId = 'tamil' | 'telugu' | 'hindi' | 'malayalam';
 
+export interface RegionalDictionary {
+  navHome: string;
+  navCoaching: string;
+  navFamily: string;
+  navSettings: string;
+  greetingMorning: string;
+  greetingAfternoon: string;
+  greetingEvening: string;
+  todaysEssentials: string;
+  steps: string;
+  routineMeds: string;
+  sleepRest: string;
+  heartPulse: string;
+  weight: string;
+  energy: string;
+  moreDetails: string;
+  calmView: string;
+  tapToSpeak: string;
+  save: string;
+  looksGood: string;
+  changeDetails: string;
+  shareWhatsApp: string;
+  copyUpdate: string;
+  copied: string;
+  tasksCompleted: string;
+}
+
 export interface RegionalVariant {
   id: RegionalVariantId;
   brandWord: string; // e.g. 'nalama', 'bagunnara', 'kushal', 'sugamano'
@@ -15,6 +42,7 @@ export interface RegionalVariant {
   addEntryLanguagesLabel: string; // 'English • தமிழ்', 'English • తెలుగు', 'English • हिन्दी', 'English • മലയാളം'
   voicePromptLabel: string; // 'English or தமிழ்', etc.
   tagline: string;
+  dictionary: RegionalDictionary;
 }
 
 export const REGIONAL_VARIANTS: Record<RegionalVariantId, RegionalVariant> = {
@@ -33,6 +61,32 @@ export const REGIONAL_VARIANTS: Record<RegionalVariantId, RegionalVariant> = {
     addEntryLanguagesLabel: 'English • தமிழ்',
     voicePromptLabel: 'English or தமிழ்',
     tagline: 'Private Family Health & Wellness Assistant',
+    dictionary: {
+      navHome: 'இல்லம்',
+      navCoaching: 'ஆலோசனை',
+      navFamily: 'குடும்பம்',
+      navSettings: 'அமைப்புகள்',
+      greetingMorning: 'காலை வணக்கம்',
+      greetingAfternoon: 'மதிய வணக்கம்',
+      greetingEvening: 'மாலை வணக்கம்',
+      todaysEssentials: 'இன்றைய முக்கியம்',
+      steps: 'நடைகள்',
+      routineMeds: 'வழக்கங்கள் & மருந்துகள்',
+      sleepRest: 'தூக்கம் & ஓய்வு',
+      heartPulse: 'நாடித் துடிப்பு',
+      weight: 'எடை',
+      energy: 'ஆற்றல்',
+      moreDetails: 'கூடுதல் விவரங்கள்',
+      calmView: 'அமைதியான பார்வை',
+      tapToSpeak: 'பேச தொடவும்',
+      save: 'சேமிக்க',
+      looksGood: 'சரி, சேமிக்கலாம்',
+      changeDetails: 'மாற்றவும்',
+      shareWhatsApp: 'WhatsApp-ல் பகிரவும்',
+      copyUpdate: 'நகலெடுக்கவும்',
+      copied: 'நகலெடுக்கப்பட்டது!',
+      tasksCompleted: 'முடிந்தது',
+    },
   },
   telugu: {
     id: 'telugu',
@@ -49,6 +103,32 @@ export const REGIONAL_VARIANTS: Record<RegionalVariantId, RegionalVariant> = {
     addEntryLanguagesLabel: 'English • తెలుగు',
     voicePromptLabel: 'English or తెలుగు',
     tagline: 'Private Family Health & Wellness Assistant',
+    dictionary: {
+      navHome: 'హోమ్',
+      navCoaching: 'సంభాషణ',
+      navFamily: 'కుటుంబం',
+      navSettings: 'సెట్టింగ్‌లు',
+      greetingMorning: 'శుభోదయం',
+      greetingAfternoon: 'శుభ మధ్యాహ్నం',
+      greetingEvening: 'శుభ సాయంత్రం',
+      todaysEssentials: 'నేటి ముఖ్యాంశాలు',
+      steps: 'నడక',
+      routineMeds: 'దినచర్య & మందులు',
+      sleepRest: 'నిద్ర & విశ్రాంతి',
+      heartPulse: 'నాడి వేగం',
+      weight: 'బరువు',
+      energy: 'శక్తి',
+      moreDetails: 'మరిన్ని వివరాలు',
+      calmView: 'ప్రశాంత వీక్షణ',
+      tapToSpeak: 'మాట్లాడటానికి నొక్కండి',
+      save: 'భద్రపరచు',
+      looksGood: 'బాగుంది, సేవ్ చేయండి',
+      changeDetails: 'మార్చండి',
+      shareWhatsApp: 'WhatsApp-లో షేర్ చేయండి',
+      copyUpdate: 'కాపీ చేయండి',
+      copied: 'కాపీ చేయబడింది!',
+      tasksCompleted: 'పూర్తయింది',
+    },
   },
   hindi: {
     id: 'hindi',
@@ -65,6 +145,32 @@ export const REGIONAL_VARIANTS: Record<RegionalVariantId, RegionalVariant> = {
     addEntryLanguagesLabel: 'English • हिन्दी',
     voicePromptLabel: 'English or हिन्दी',
     tagline: 'Private Family Health & Wellness Assistant',
+    dictionary: {
+      navHome: 'होम',
+      navCoaching: 'परामर्श',
+      navFamily: 'परिवार',
+      navSettings: 'सेटिंग्स',
+      greetingMorning: 'शुभ प्रभात',
+      greetingAfternoon: 'शुभ दोपहर',
+      greetingEvening: 'शुभ संध्या',
+      todaysEssentials: 'आज की मुख्य बातें',
+      steps: 'कदम व सैर',
+      routineMeds: 'दिनचर्या व दवाइयां',
+      sleepRest: 'नींद व विश्राम',
+      heartPulse: 'नाड़ी की गति',
+      weight: 'वज़न',
+      energy: 'ऊर्जा',
+      moreDetails: 'अधिक विवरण',
+      calmView: 'शांत दृश्य',
+      tapToSpeak: 'बोलने के लिए टैप करें',
+      save: 'सहेजें',
+      looksGood: 'सब ठीक है, सहेजें',
+      changeDetails: 'बदलें',
+      shareWhatsApp: 'WhatsApp पर साझा करें',
+      copyUpdate: 'कॉपी करें',
+      copied: 'कॉपी हो गया!',
+      tasksCompleted: 'पूर्ण',
+    },
   },
   malayalam: {
     id: 'malayalam',
@@ -81,6 +187,32 @@ export const REGIONAL_VARIANTS: Record<RegionalVariantId, RegionalVariant> = {
     addEntryLanguagesLabel: 'English • മലയാളം',
     voicePromptLabel: 'English or മലയാളം',
     tagline: 'Private Family Health & Wellness Assistant',
+    dictionary: {
+      navHome: 'ഹോം',
+      navCoaching: 'മാർഗ്ഗദർശനം',
+      navFamily: 'കുടുംബം',
+      navSettings: 'ക്രമീകരണങ്ങൾ',
+      greetingMorning: 'സുപ്രഭാതം',
+      greetingAfternoon: 'ശുഭ ഉച്ചതിരിഞ്ഞ്',
+      greetingEvening: 'ശുഭ സായാഹ്നം',
+      todaysEssentials: 'ഇന്നത്തെ പ്രധാനം',
+      steps: 'നടത്തം',
+      routineMeds: 'ദിനചര്യയും മരുന്നുകളും',
+      sleepRest: 'ഉറക്കവും വിശ്രമവും',
+      heartPulse: 'ഹൃദയമിടിപ്പ്',
+      weight: 'ഭാരം',
+      energy: 'ഊർജ്ജം',
+      moreDetails: 'കൂടുതൽ വിവരങ്ങൾ',
+      calmView: 'ശാന്തമായ കാഴ്ച',
+      tapToSpeak: 'സംസാരിക്കാൻ തൊടുക',
+      save: 'സേവ് ചെയ്യുക',
+      looksGood: 'ശരി, സേവ് ചെയ്യാം',
+      changeDetails: 'മാറ്റുക',
+      shareWhatsApp: 'WhatsApp-ൽ പങ്കിടുക',
+      copyUpdate: 'പകർത്തുക',
+      copied: 'പകർത്തി!',
+      tasksCompleted: 'പൂർത്തിയായി',
+    },
   },
 };
 
@@ -180,6 +312,13 @@ export function getVariantFromLanguage(language?: string | null): RegionalVarian
  */
 export function getRegionalVariant(id: RegionalVariantId = DEFAULT_VARIANT_ID): RegionalVariant {
   return REGIONAL_VARIANTS[id] || REGIONAL_VARIANTS[DEFAULT_VARIANT_ID];
+}
+
+/**
+ * Retrieves the dictionary translations for a given regional variant ID.
+ */
+export function getRegionalDictionary(id: RegionalVariantId = DEFAULT_VARIANT_ID): RegionalDictionary {
+  return (REGIONAL_VARIANTS[id] || REGIONAL_VARIANTS[DEFAULT_VARIANT_ID]).dictionary;
 }
 
 /**

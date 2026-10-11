@@ -8,6 +8,7 @@ import {
   STORAGE_KEY_REGIONAL_VARIANT,
   detectVariantFromLocation,
   getVariantFromLanguage,
+  RegionalDictionary,
   getRegionalVariant,
   updateBrowserUrlForVariant
 } from '../lib/regionalVariants';
@@ -15,6 +16,7 @@ import {
 interface RegionalVariantContextType {
   variant: RegionalVariant;
   variantId: RegionalVariantId;
+  dictionary: RegionalDictionary;
   setVariantId: (id: RegionalVariantId, updateUrl?: boolean) => void;
   syncWithProfileLanguage: (primaryLanguage?: string | null, updateUrl?: boolean) => void;
   allVariants: RegionalVariant[];
@@ -94,6 +96,7 @@ export const RegionalVariantProvider: React.FC<{ children: React.ReactNode }> = 
       value={{
         variant: activeVariant,
         variantId,
+        dictionary: activeVariant.dictionary,
         setVariantId,
         syncWithProfileLanguage,
         allVariants: ALL_REGIONAL_VARIANTS,
@@ -112,6 +115,7 @@ export function useRegionalVariant(): RegionalVariantContextType {
     return {
       variant: fallback,
       variantId: DEFAULT_VARIANT_ID,
+      dictionary: fallback.dictionary,
       setVariantId: () => {},
       syncWithProfileLanguage: () => {},
       allVariants: ALL_REGIONAL_VARIANTS,

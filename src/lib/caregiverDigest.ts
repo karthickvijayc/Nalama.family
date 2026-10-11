@@ -170,3 +170,43 @@ export async function ensureInitialCaregiverDigest(
     return false;
   }
 }
+
+/**
+ * Formats a caregiver digest into an attractive, emoji-structured WhatsApp text message.
+ */
+export function formatDigestForWhatsApp(
+  profileName: string,
+  digest: CaregiverDigest
+): string {
+  const statusEmoji = digest.status === 'attention' ? '⚠️' : '✨';
+  const statusLabel = digest.status_label || (digest.status === 'attention' ? 'Attention Needed' : 'Active & Feeling Well');
+
+  const lines: string[] = [
+    `🌿 *Nalama Family Care Update*`,
+    `👤 *Loved One:* ${profileName}`,
+    `📅 *When:* ${digest.displayDate} • ${digest.displayTime}`,
+    `${statusEmoji} *Status:* ${statusLabel}`,
+    ``,
+    `📝 *Summary:*`,
+    `${digest.summary}`,
+  ];
+
+  if (digest.metrics && digest.metrics.length > 0) {
+    lines.push(``);
+    lines.push(`📊 *Daily Highlights:*`);
+    digest.metrics.forEach(m => {
+      let icon = '🔹';
+      if (m.type === 'activity') icon = '🚶';
+      else if (m.type === 'nutrition') icon = '🥣';
+      else if (m.type === 'medication') icon = '💊';
+      else if (m.type === 'vitals') icon = '❤️';
+      else if (m.type === 'sleep') icon = '🌙';
+      lines.push(`${icon} *${m.title}:* ${m.value}${m.status ? ` (${m.status})` : ''}`);
+    });
+  }
+
+  lines.push(``);
+  lines.push(`_Shared via Nalama.family (Zero-Database Private Health)_`);
+
+  return lines.join('\n');
+}

@@ -26,7 +26,10 @@ import {
   Link,
   ExternalLink,
   Wifi,
-  BookUser
+  BookUser,
+  MessageSquare,
+  Share2,
+  Copy
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { isContactPickerSupported, pickContactEmail } from '../lib/contactPicker';
@@ -38,6 +41,8 @@ import {
   searchSharedCareDigests,
   extractDriveId
 } from '../lib/drive';
+import { formatDigestForWhatsApp } from '../lib/caregiverDigest';
+import { useRegionalVariant } from '../context/RegionalVariantContext';
 import { useWakeLock } from '../lib/wakeLock';
 import { useModalBackHandler } from '../lib/backNavigation';
 
@@ -374,9 +379,31 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
     }
   };
 
+  const { variant } = useRegionalVariant();
+  const [copiedToWhatsApp, setCopiedToWhatsApp] = useState(false);
+
   const latestDigest = digestContent?.latest_digest;
   const historyDigests = digestContent?.history || [];
   const isConnectedToFile = Boolean(activeProfile?.sharedDriveFileId || activeProfile?.sharedDriveFolderId);
+
+  const handleShareToWhatsApp = () => {
+    if (!latestDigest || !activeProfile) return;
+    const message = formatDigestForWhatsApp(activeProfile.name, latestDigest);
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyForWhatsApp = async () => {
+    if (!latestDigest || !activeProfile) return;
+    const message = formatDigestForWhatsApp(activeProfile.name, latestDigest);
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopiedToWhatsApp(true);
+      setTimeout(() => setCopiedToWhatsApp(false), 2500);
+    } catch (err) {
+      console.warn('Could not copy update to clipboard:', err);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 pt-8 pb-40">
@@ -579,10 +606,10 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
 
               <div className="flex flex-col gap-1 max-w-sm">
                 <h3 className="text-lg font-bold text-stone-900">
-                  Drive Not Connected for {activeProfile?.name}
+                  Connect Health Space for {activeProfile?.name}
                 </h3>
                 <p className="text-xs text-stone-500 font-medium leading-relaxed">
-                  To view {activeProfile?.name}&apos;s health updates, link the <span className="font-semibold">care_digest.json</span> shared with your Google account ({user?.email || 'your email'}).
+                  To view {activeProfile?.name}&apos;s daily wellness check-ins, link their shared health space or select from files shared with your Google account ({user?.email || 'your email'}).
                 </p>
               </div>
 
@@ -601,14 +628,14 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                   className="px-4 py-2.5 bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Link size={14} />
-                  <span>Enter File ID / Link</span>
+                  <span>Connect via Link / ID</span>
                 </button>
               </div>
 
               {/* Show scan results if any */}
               {discoveredFiles.length > 0 && (
                 <div className="w-full max-w-md mt-2 flex flex-col gap-2 text-left bg-white p-3 rounded-2xl border border-canopy-200">
-                  <span className="text-[11px] font-bold text-stone-500 uppercase px-1">Found Shared Care Digests:</span>
+                  <span className="text-[11px] font-bold text-stone-500 uppercase px-1">Found Shared Health Spaces:</span>
                   {discoveredFiles.map((file) => (
                     <div 
                       key={file.id}
@@ -643,13 +670,13 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
             <div className="bg-white border border-stone-200 rounded-[2rem] p-12 text-center flex flex-col items-center justify-center gap-3">
               <RefreshCw size={28} className="animate-spin text-canopy-700" />
               <p className="text-sm font-semibold text-stone-600">
-                Reading remote care digest from Google Drive...
+                Checking for latest updates from Google Drive...
               </p>
             </div>
           ) : latestDigest ? (
             /* Active Digest Display */
             <>
-              {/* Remote Status Banner */}
+              {/* Daily Status Banner */}
               <div className={`p-5 rounded-[2rem] text-white shadow-sm flex flex-col gap-3 transition-all ${
                 latestDigest.status === 'attention' 
                   ? 'bg-amber-600' 
@@ -661,7 +688,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                       latestDigest.status === 'attention' ? 'bg-amber-300' : 'bg-canopy-300'
                     } animate-pulse`} />
                     <span className="font-bold uppercase tracking-wider text-xs opacity-95">
-                      {activeProfile?.name}&apos;s Remote Status: {latestDigest.status_label || (latestDigest.status === 'attention' ? 'Attention Needed' : 'Active & Well')}
+                      {activeProfile?.name}&apos;s Daily Check-in: {latestDigest.status_label || (latestDigest.status === 'attention' ? 'Attention Needed' : 'Active & Feeling Well')}
                     </span>
                   </div>
                   <button
@@ -688,8 +715,56 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                   <span>Logged {latestDigest.displayDate} at {latestDigest.displayTime}</span>
                   <span className="text-[11px] opacity-80 flex items-center gap-1">
                     <Wifi size={10} />
-                    Remote Google Drive
+                    Google Drive (Private Sync)
                   </span>
+                </div>
+              </div>
+
+              {/* 1-Tap WhatsApp Share & Copy Card */}
+              <div className="bg-emerald-50/90 border border-emerald-200/90 rounded-[2rem] p-4.5 flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-xs">
+                <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <MessageSquare size={20} />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-extrabold text-emerald-950 uppercase tracking-wide">
+                      WhatsApp Daily Update
+                    </span>
+                    <span className="text-[11px] text-emerald-800 font-medium truncate">
+                      Share {activeProfile?.name}&apos;s check-in with family chat
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleShareToWhatsApp}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                    title="Send via WhatsApp"
+                  >
+                    <Share2 size={14} />
+                    <span>{variant.dictionary.shareWhatsApp || 'Share to WhatsApp'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyForWhatsApp}
+                    className="flex-1 sm:flex-none px-3.5 py-2.5 bg-white hover:bg-emerald-100/60 active:scale-95 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    title="Copy formatted text to clipboard"
+                  >
+                    {copiedToWhatsApp ? (
+                      <>
+                        <Check size={14} className="text-emerald-700" />
+                        <span className="text-emerald-700 font-bold">{variant.dictionary.copied || 'Copied!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} />
+                        <span>{variant.dictionary.copyUpdate || 'Copy Update'}</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -721,7 +796,7 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                 <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2">
                     <Clock size={18} className="text-stone-700" />
-                    <h2 className="text-xl font-bold text-stone-900">Remote Care Timeline</h2>
+                    <h2 className="text-xl font-bold text-stone-900">Family Care Timeline</h2>
                   </div>
                   <span className="text-xs font-semibold text-stone-400">
                     {historyDigests.length} {historyDigests.length === 1 ? 'entry' : 'entries'}
@@ -818,13 +893,13 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
           {/* Drive Connection Status & Re-link Footer */}
           <div className="bg-white rounded-2xl border border-stone-200 p-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5 truncate">
-              <FolderOpen size={18} className="text-stone-500 shrink-0" />
+              <FolderOpen size={18} className="text-canopy-700 shrink-0" />
               <div className="flex flex-col truncate">
                 <span className="text-xs font-bold text-stone-900">
-                  Remote Drive File Connection
+                  Private Google Drive Sync
                 </span>
-                <span className="text-[11px] text-stone-500 truncate font-mono">
-                  {activeProfile?.sharedDriveFileId ? `ID: ${activeProfile.sharedDriveFileId.slice(0, 16)}...` : 'Not linked'}
+                <span className="text-[11px] text-stone-500 truncate">
+                  {activeProfile?.sharedDriveFileId ? 'Securely linked to loved one\'s health space' : 'Not linked yet'}
                 </span>
               </div>
             </div>
@@ -834,9 +909,9 @@ export default function Family({ driveState, user, refreshTrigger }: FamilyProps
                 setLinkInputVal(activeProfile?.sharedDriveFileId || '');
                 setShowLinkModal(true);
               }}
-              className="text-xs font-bold text-teal-700 hover:text-teal-800 shrink-0 px-2.5 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 transition-colors cursor-pointer"
+              className="text-xs font-bold text-canopy-700 hover:text-canopy-800 shrink-0 px-2.5 py-1.5 rounded-lg bg-canopy-50 hover:bg-canopy-100 transition-colors cursor-pointer"
             >
-              {activeProfile?.sharedDriveFileId ? 'Change Link' : 'Link File'}
+              {activeProfile?.sharedDriveFileId ? 'Change Connection' : 'Connect Space'}
             </button>
           </div>
 

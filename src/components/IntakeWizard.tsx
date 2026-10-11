@@ -232,11 +232,35 @@ export default function IntakeWizard({ initialProfile, onSave }: IntakeWizardPro
 
                     <input 
                       type="number"
-                      placeholder="e.g. 34"
+                      placeholder="e.g. 65"
                       value={profile.age}
-                      onChange={(e) => setProfile({ ...profile, age: e.target.value ? parseInt(e.target.value) : '' })}
+                      onChange={(e) => {
+                        const val = e.target.value ? parseInt(e.target.value) : '';
+                        const isSenior = typeof val === 'number' && val >= 60;
+                        setProfile(prev => ({ 
+                          ...prev, 
+                          age: val,
+                          calmMode: prev.calmMode !== undefined ? prev.calmMode : isSenior
+                        }));
+                      }}
                       className="w-full bg-white border border-stone-200 focus:border-tree-500 rounded-2xl py-3.5 px-4 text-stone-900 font-bold text-sm outline-none focus:ring-2 focus:ring-tree-100 transition-all placeholder:text-stone-300"
                     />
+
+                    {/* Calm Senior Mode Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-200 mt-1">
+                      <div className="flex flex-col pr-2">
+                        <span className="text-xs font-bold text-stone-900">Calm Mode (Senior-Friendly)</span>
+                        <span className="text-[10px] text-stone-500 font-medium leading-tight">Large text & essential daily cards without numeric clutter.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setProfile({ ...profile, calmMode: !profile.calmMode })}
+                        className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer shrink-0 ${profile.calmMode ? 'bg-tree-600' : 'bg-stone-300'}`}
+                        aria-label="Toggle Calm Mode"
+                      >
+                        <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${profile.calmMode ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-col gap-1.5">

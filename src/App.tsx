@@ -32,6 +32,7 @@ import {
 import { executeExternalDataSync } from './lib/importers/syncEngine';
 import { useWakeLock } from './lib/wakeLock';
 import { useAndroidBackNavigation } from './lib/backNavigation';
+import { useRegionalVariant } from './context/RegionalVariantContext';
 import { User } from 'firebase/auth';
 import { Home, MessageCircle, Users, Settings, AlertCircle, RefreshCw, LogOut, User as UserIcon } from 'lucide-react';
 import { DriveState, UserProfile } from './types';
@@ -51,6 +52,15 @@ export default function App() {
   const [driveState, setDriveState] = useState<DriveState | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [logsRefreshTrigger, setLogsRefreshTrigger] = useState(0);
+
+  const { variant, syncWithProfileLanguage } = useRegionalVariant();
+
+  // Keep active regional variant in sync with user profile primary language
+  useEffect(() => {
+    if (userProfile?.primaryLanguage) {
+      syncWithProfileLanguage(userProfile.primaryLanguage, false);
+    }
+  }, [userProfile?.primaryLanguage, syncWithProfileLanguage]);
 
   // Check if user is navigating directly to /privacy or /terms
   const [legalView, setLegalView] = useState<'privacy' | 'terms' | null>(() => {
@@ -584,29 +594,33 @@ export default function App() {
       {/* Bottom Navigation (hidden during intake onboarding) */}
       {!isIntakeNeeded && (
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-40">
-          <div className="max-w-md mx-auto flex justify-between items-center px-4 sm:px-6 py-2.5 pb-safe">
+          <div className="max-w-md mx-auto flex justify-between items-center px-4 sm:px-6 py-2 pb-safe">
             <NavItem 
-              icon={<Home size={26} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
+              icon={<Home size={24} strokeWidth={activeTab === 'home' ? 2.5 : 2} />} 
               label="Home" 
+              sublabel={variant.dictionary.navHome}
               active={activeTab === 'home'} 
               onClick={() => setActiveTab('home')}
             />
             <NavItem 
-              icon={<MessageCircle size={26} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
+              icon={<MessageCircle size={24} strokeWidth={activeTab === 'coaching' ? 2.5 : 2} />} 
               label="Coaching" 
+              sublabel={variant.dictionary.navCoaching}
               active={activeTab === 'coaching'}
               onClick={() => setActiveTab('coaching')}
             />
             <NavItem 
-              icon={<Users size={26} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
+              icon={<Users size={24} strokeWidth={activeTab === 'family' ? 2.5 : 2} />} 
               label="Family" 
+              sublabel={variant.dictionary.navFamily}
               active={activeTab === 'family'}
               variant="canopy"
               onClick={() => setActiveTab('family')}
             />
             <NavItem 
-              icon={<Settings size={26} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
+              icon={<Settings size={24} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />} 
               label="Settings" 
+              sublabel={variant.dictionary.navSettings}
               active={activeTab === 'settings'}
               onClick={() => setActiveTab('settings')}
             />
@@ -634,12 +648,14 @@ export default function App() {
 function NavItem({ 
   icon, 
   label, 
+  sublabel,
   active, 
   variant = 'tree',
   onClick 
 }: { 
   icon: React.ReactNode; 
   label: string; 
+  sublabel?: string;
   active: boolean; 
   variant?: 'tree' | 'canopy';
   onClick: () => void; 
@@ -650,14 +666,19 @@ function NavItem({
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1.5 transition-colors ${active ? activeColor : 'text-stone-400 hover:text-stone-600'}`}
+      className={`flex flex-col items-center gap-0.5 transition-colors ${active ? activeColor : 'text-stone-400 hover:text-stone-600'}`}
     >
-      <div className={`${active ? activeBg : ''} p-2 rounded-2xl transition-colors`}>
+      <div className={`${active ? activeBg : ''} p-1.5 rounded-2xl transition-colors`}>
         {icon}
       </div>
-      <span className={`text-xs tracking-wide ${active ? 'font-bold' : 'font-semibold'}`}>
+      <span className={`text-[11px] leading-tight tracking-tight ${active ? 'font-bold' : 'font-semibold'}`}>
         {label}
       </span>
+      {sublabel && (
+        <span className="text-[10px] text-stone-400 font-medium -mt-0.5 leading-none">
+          {sublabel}
+        </span>
+      )}
     </button>
   );
 }

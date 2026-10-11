@@ -131,3 +131,25 @@ This document outlines the step-by-step engineering plan to transition `nalama.f
    - Enhanced `/api/extract-context` to automatically detect resistance benchmarks (PRs, top sets, volume), sleep architecture, and biometric baselines.
    - Grounded the Coaching Rooms (`Workout & Movement`, `Mindful Recovery`, `Nutrition`, `Medical`) with exercise set logs, RPE, volume, and sleep stage analysis.
 
+## Phase 9: Simplicity & Senior-Centric UX (In Progress)
+*Human-centric design refinements prioritizing families with seniors and non-technical members.*
+
+1. **[x] Invisible Coaching Saturation & Graceful Thread Rollover (`src/components/Coaching.tsx`)**
+   - Removed visible token context saturation meters and budget percentage bars from consumer view.
+   - Maintained token tracking internally; when the thread crosses the focus threshold (32,000 tokens), user is gracefully prompted on new prompt submission to rollover into a fresh thread with a smart bridge summary or continue.
+2. **[x] Conversational Voice Confirmation with 1-Tap Save / Edit Card (`server.ts`, `src/components/VoiceRecorderButton.tsx`)**
+   - Updated parsing prompt in `server.ts` to return natural conversational confirmation message (`confirmationMessage`).
+   - Integrated warm confirmation card into `VoiceRecorderButton.tsx` with 1-tap "Looks Good, Save!" button; user can select "No, change details" to open full editing card.
+3. **[x] Calm Senior Mode (Auto-enabled for Age 60+, Profile Toggle) (`src/types.ts`, `src/components/Dashboard.tsx`, `src/components/Settings.tsx`, `src/components/IntakeWizard.tsx`)**
+   - Add `calmMode` to UserProfile. Auto-enable by default if age >= 60; provide an explicit toggle in User Profile.
+   - In Calm Mode, present the 3 daily essentials (Movement/Steps, Medications/Routines, Rest/Vitals) with large typography, a prominent Hero Voice Mic, and reduced calorie math clutter.
+4. **[x] Cultural Grounding & Bilingual Regional UI Microcopy (`src/lib/regionalVariants.ts`, `src/App.tsx`, `src/components/Dashboard.tsx`)**
+   - Provide localized/bilingual labels for core navigation, vitals, time buckets, and actions across Tamil, Telugu, Hindi, Malayalam, and English.
+   - Ensure the AI assistant greets and responds respectfully in the user's selected regional language.
+5. **[x] Polished Family Terminology & 1-Tap WhatsApp Export (`src/components/Family.tsx`, `src/lib/caregiverDigest.ts`)**
+   - Replace cold technical terminology ("care_digest.json", "Remote Care Status", "File ID") with warm family concepts ("Daily Care Update", "Family Health Summary").
+   - Retain full Google Drive sharing and live sync.
+6. **[x] Layered Settings with Discreet Developer Mode (`src/components/Settings.tsx`)**
+   - Keep everyday family settings simple (Profile, Language, Calm Mode, Family Caregivers).
+   - Tuck developer tooling (BYOK Gemini API keys, folder IDs, Telemetry & Diagnostics) behind an unlocked-by-default or 5-tap developer mode.
+

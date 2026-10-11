@@ -58,6 +58,7 @@ import TrendModal from './TrendModal';
 import { parseProfileWeight, extractWeightFromLog } from '../lib/trendGenerator';
 import { useWakeLock } from '../lib/wakeLock';
 import { useModalBackHandler } from '../lib/backNavigation';
+import { useRegionalVariant } from '../context/RegionalVariantContext';
 
 type ActivityCategory = 'all' | 'workout' | 'meal' | 'medication' | 'event' | 'general' | 'routine';
 
@@ -204,7 +205,9 @@ function getBucketIcon(bucket: TimeBucket) {
 
 
 export default function Dashboard({ driveState, refreshTrigger, userProfile, user, onActivityUpdated }: DashboardProps) {
+  const { variant } = useRegionalVariant();
   const [routineActivities, setRoutineActivities] = useState<ActivityEntry[]>([]);
+  const [showFullMetricsInCalm, setShowFullMetricsInCalm] = useState(false);
   const [logStatusOverrides, setLogStatusOverrides] = useState<Record<string, 'completed' | 'pending'>>({});
   const [selectedFilter, setSelectedFilter] = useState<ActivityCategory>('all');
   const [healthLogs, setHealthLogs] = useState<HealthLogEntry[]>([]);
@@ -775,9 +778,16 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    let nativeGreeting = variant.dictionary.greetingMorning;
+    let englishGreeting = 'Good morning';
+    if (hour >= 12 && hour < 17) {
+      nativeGreeting = variant.dictionary.greetingAfternoon;
+      englishGreeting = 'Good afternoon';
+    } else if (hour >= 17) {
+      nativeGreeting = variant.dictionary.greetingEvening;
+      englishGreeting = 'Good evening';
+    }
+    return `${nativeGreeting} • ${englishGreeting}`;
   };
 
   const currentDateDisplay = new Intl.DateTimeFormat('en-US', {
@@ -802,6 +812,7 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
   const hasTasks = todayRoutines.length > 0;
   const taskCompletionText = hasTasks ? `${completedRoutines} out of ${todayRoutines.length} today's tasks completed` : 'No tasks scheduled';
   const taskCompletionPercentage = hasTasks ? Math.round((completedRoutines / todayRoutines.length) * 100).toString() : "-";
+  const isCalmMode = userProfile?.calmMode ?? (Boolean(userProfile?.age && Number(userProfile.age) >= 60));
 
   return (
     <div className="flex flex-col gap-6 pt-6 pb-32 bg-[#F9F7F4] min-h-screen relative">
@@ -814,152 +825,267 @@ export default function Dashboard({ driveState, refreshTrigger, userProfile, use
         </div>
       </header>
 
-      {/* Vitals Summary - Restructured Layout with Trends & Weight Card */}
-      <section className="flex flex-col gap-4">
-        {/* Row 1: Left - Steps, Right - Active Time */}
-        <div className="grid grid-cols-2 gap-4">
-          <VitalCard 
-            icon={<Footprints size={24} className="text-tree-600" />} 
-            title="Daily Steps" 
-            value={todaySteps !== null ? todaySteps.toLocaleString() : "-"} 
-            subtitle={`Goal: ${targetSteps.toLocaleString()}`} 
-            onClick={() => setSelectedTrendMetric('steps')}
-          />
-          <VitalCard 
-            icon={<Activity size={24} className="text-blue-500" />} 
-            title="Active Time" 
-            value={todayActiveMinutes !== null ? todayActiveMinutes.toString() : "-"} 
-            unit={todayActiveMinutes !== null ? "m" : undefined} 
-            subtitle={`Goal: ${targetActiveTime}m`} 
-            onClick={() => setSelectedTrendMetric('active_time')}
-          />
-        </div>
-
-        {/* Row 2: Left - Resting Heart Rate, Right - Body Weight */}
-        <div className="grid grid-cols-2 gap-4">
-          <VitalCard 
-            icon={<Heart size={24} className="text-rose-500" />} 
-            title="Heart Rate" 
-            value={todayHeartRate !== null ? String(todayHeartRate) : "-"} 
-            unit={todayHeartRate !== null ? "bpm" : undefined} 
-            subtitle={`Target: ${targetHR} bpm`} 
-            onClick={() => setSelectedTrendMetric('heart_rate')}
-          />
-          <VitalCard 
-            icon={<Scale size={24} className="text-teal-600" />} 
-            title="Weight" 
-            value={displayWeight !== null ? (Math.round(displayWeight * 10) / 10).toFixed(1) : "-"} 
-            unit={displayWeight !== null ? "kg" : undefined} 
-            subtitle={targetWeight ? `Goal: ${targetWeight} kg` : (profileWeight ? `Baseline: ${profileWeight} kg` : "Track weight")} 
-            onClick={() => setSelectedTrendMetric('weight')}
-          />
-        </div>
-
-        {/* Row 3: Simplified Calories Balance Card */}
-        <div 
-          onClick={() => setSelectedTrendMetric('calories')}
-          className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm hover:border-stone-300 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3.5 group active:scale-[0.99]"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-stone-500 font-semibold text-lg">
-              <Flame size={24} className="text-orange-500" />
-              <span>Calories</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
-                Target: {targetCalories.toLocaleString()} kcal
-              </span>
-              <ChevronRight size={18} className="text-stone-300 group-hover:text-stone-600 transition-colors" />
-            </div>
+      {/* Vitals Summary - Calm Senior Mode vs Standard Quantified-Self Mode */}
+      {isCalmMode && !showFullMetricsInCalm ? (
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-tree-800 bg-tree-50 px-3 py-1 rounded-full border border-tree-100 flex items-center gap-1.5">
+              <Sparkles size={12} className="text-tree-600" />
+              <span>{variant.dictionary.todaysEssentials} • Today's Essentials</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFullMetricsInCalm(true)}
+              className="text-xs font-bold text-stone-500 hover:text-stone-800 flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span>{variant.dictionary.moreDetails}</span>
+              <ChevronDown size={14} />
+            </button>
           </div>
 
-          {/* Clean 3-Metric Summary: Burned, Intake, Net */}
-          <div className="grid grid-cols-3 gap-3 my-0.5">
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Burned</span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-2xl sm:text-3xl font-extrabold text-teal-600">
-                  {todayCaloriesBurned !== null ? todayCaloriesBurned.toLocaleString() : "-"}
-                </span>
-                {todayCaloriesBurned !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
-              </div>
-              <span className="text-[11px] text-stone-400 font-medium">Workouts</span>
-            </div>
-
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Intake</span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-2xl sm:text-3xl font-extrabold text-orange-600">
-                  {todayCaloriesConsumed !== null ? todayCaloriesConsumed.toLocaleString() : "-"}
-                </span>
-                {todayCaloriesConsumed !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
-              </div>
-              <span className="text-[11px] text-stone-400 font-medium">{todayCaloriesConsumed !== null ? "Meals logged" : "No intake"}</span>
-            </div>
-
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Net</span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-2xl sm:text-3xl font-extrabold text-stone-900">
-                  {todayCaloriesConsumed !== null || todayCaloriesBurned !== null ? (
-                    ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > 0 
-                      ? `+${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}` 
-                      : ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()
-                  ) : "-"}
-                </span>
-                {(todayCaloriesConsumed !== null || todayCaloriesBurned !== null) && <span className="text-xs font-bold text-stone-400">kcal</span>}
-              </div>
-              <span className="text-[11px] text-stone-400 font-medium">
-                {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'Over target' : 'Within target'}
-              </span>
-            </div>
-          </div>
-
-          {/* Clean Progress Bar against Daily Target */}
-          <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden flex">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Card 1: Daily Movement */}
             <div 
-              className="h-full bg-teal-500 rounded-full transition-all duration-500" 
-              style={{ width: `${Math.min(100, Math.round(((todayCaloriesBurned || 0) / targetCalories) * 100))}%` }}
-              title={`Burned: ${todayCaloriesBurned || 0} kcal`}
+              onClick={() => setSelectedTrendMetric('steps')}
+              className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm flex items-center justify-between gap-4 cursor-pointer hover:border-stone-300 transition-all active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-14 h-14 rounded-2xl bg-tree-50 text-tree-700 flex items-center justify-center shrink-0 border border-tree-100">
+                  <Footprints size={28} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">
+                    {variant.dictionary.steps} • Daily Walk
+                  </span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-3xl font-extrabold text-stone-900">
+                      {todaySteps !== null ? todaySteps.toLocaleString() : "-"}
+                    </span>
+                    <span className="text-xs font-bold text-stone-400">steps</span>
+                  </div>
+                  <span className="text-xs text-stone-500 font-medium truncate">Goal: {targetSteps.toLocaleString()}</span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-stone-300 shrink-0" />
+            </div>
+
+            {/* Card 2: Today's Tasks & Medications */}
+            <div 
+              onClick={() => setSelectedTrendMetric('tasks')}
+              className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm flex items-center justify-between gap-4 cursor-pointer hover:border-stone-300 transition-all active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-14 h-14 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 border border-purple-100">
+                  <Pill size={26} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">
+                    {variant.dictionary.routineMeds} • Routine
+                  </span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-3xl font-extrabold text-stone-900">
+                      {hasTasks ? `${completedRoutines}/${todayRoutines.length}` : "Done"}
+                    </span>
+                    <span className="text-xs font-bold text-stone-400">completed</span>
+                  </div>
+                  <span className="text-xs text-stone-500 font-medium truncate">{taskCompletionText}</span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-stone-300 shrink-0" />
+            </div>
+
+            {/* Card 3: Rest & Pulse */}
+            <div 
+              onClick={() => setSelectedTrendMetric('sleep')}
+              className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm flex items-center justify-between gap-4 cursor-pointer hover:border-stone-300 transition-all active:scale-[0.99] sm:col-span-2"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-14 h-14 rounded-2xl bg-canopy-50 text-canopy-700 flex items-center justify-center shrink-0 border border-canopy-100">
+                  <Moon size={26} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">
+                    {variant.dictionary.sleepRest} • Sleep & Pulse
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-0.5">
+                    <span className="text-3xl font-extrabold text-stone-900">
+                      {todaySleep !== null ? `${todaySleep.hours} hrs` : "Restful"}
+                    </span>
+                    {todayHeartRate !== null && (
+                      <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-100">
+                        ❤️ {todayHeartRate} bpm pulse
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-stone-500 font-medium truncate">
+                    {todaySleep?.efficiency ? `${todaySleep.efficiency}% efficiency • Aim for 7-8 hrs` : "Healthy rest pattern"}
+                  </span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-stone-300 shrink-0" />
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="flex flex-col gap-4">
+          {isCalmMode && (
+            <div className="flex justify-end px-1">
+              <button
+                type="button"
+                onClick={() => setShowFullMetricsInCalm(false)}
+                className="text-xs font-bold text-tree-700 hover:text-tree-900 flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span>{variant.dictionary.calmView} • Switch to Calm View</span>
+                <ChevronUp size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Row 1: Left - Steps, Right - Active Time */}
+          <div className="grid grid-cols-2 gap-4">
+            <VitalCard 
+              icon={<Footprints size={24} className="text-tree-600" />} 
+              title="Daily Steps" 
+              value={todaySteps !== null ? todaySteps.toLocaleString() : "-"} 
+              subtitle={`Goal: ${targetSteps.toLocaleString()}`} 
+              onClick={() => setSelectedTrendMetric('steps')}
+            />
+            <VitalCard 
+              icon={<Activity size={24} className="text-blue-500" />} 
+              title="Active Time" 
+              value={todayActiveMinutes !== null ? todayActiveMinutes.toString() : "-"} 
+              unit={todayActiveMinutes !== null ? "m" : undefined} 
+              subtitle={`Goal: ${targetActiveTime}m`} 
+              onClick={() => setSelectedTrendMetric('active_time')}
             />
           </div>
 
-          {/* Subtitle / Footer with Trend link */}
-          <div className="flex items-center justify-between text-xs text-stone-500 font-medium pt-0.5">
-            <span>
-              {todayCaloriesBurned ? `${todayCaloriesBurned.toLocaleString()} kcal active burn today` : 'No workout burn recorded today'}
-            </span>
-            <span className="text-tree-700 font-bold group-hover:underline flex items-center gap-0.5 text-xs">
-              View Trends <ChevronRight size={14} />
-            </span>
+          {/* Row 2: Left - Resting Heart Rate, Right - Body Weight */}
+          <div className="grid grid-cols-2 gap-4">
+            <VitalCard 
+              icon={<Heart size={24} className="text-rose-500" />} 
+              title="Heart Rate" 
+              value={todayHeartRate !== null ? String(todayHeartRate) : "-"} 
+              unit={todayHeartRate !== null ? "bpm" : undefined} 
+              subtitle={`Target: ${targetHR} bpm`} 
+              onClick={() => setSelectedTrendMetric('heart_rate')}
+            />
+            <VitalCard 
+              icon={<Scale size={24} className="text-teal-600" />} 
+              title="Weight" 
+              value={displayWeight !== null ? (Math.round(displayWeight * 10) / 10).toFixed(1) : "-"} 
+              unit={displayWeight !== null ? "kg" : undefined} 
+              subtitle={targetWeight ? `Goal: ${targetWeight} kg` : (profileWeight ? `Baseline: ${profileWeight} kg` : "Track weight")} 
+              onClick={() => setSelectedTrendMetric('weight')}
+            />
           </div>
-        </div>
 
-        {/* Row 4: Left - Daily Tasks, Right - Sleep Recovery */}
-        <div className="grid grid-cols-2 gap-4">
-          <VitalCard 
-            icon={<Target size={24} className="text-purple-500" />} 
-            title="Daily Tasks" 
-            value={hasTasks ? taskCompletionPercentage : "-"} 
-            unit={hasTasks ? "%" : undefined} 
-            subtitle={taskCompletionText} 
-            onClick={() => setSelectedTrendMetric('tasks')}
-          />
-          <VitalCard 
-            icon={<Moon size={24} className="text-canopy-600" />} 
-            title="Sleep" 
-            value={todaySleep !== null ? String(todaySleep.hours) : "-"} 
-            unit={todaySleep !== null ? "hrs" : undefined} 
-            subtitle={
-              todaySleep 
-                ? (todaySleep.efficiency ? `${todaySleep.efficiency}% efficiency` : 'Restful sleep')
-                : 'Aim for 7-8 hrs'
-            } 
-            onClick={() => setSelectedTrendMetric('sleep')}
-          />
-        </div>
-      </section>
+          {/* Row 3: Simplified Calories Balance Card */}
+          <div 
+            onClick={() => setSelectedTrendMetric('calories')}
+            className="bg-white rounded-[2rem] p-5 border border-stone-200 shadow-sm hover:border-stone-300 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3.5 group active:scale-[0.99]"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-stone-500 font-semibold text-lg">
+                <Flame size={24} className="text-orange-500" />
+                <span>Calories</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
+                  Target: {targetCalories.toLocaleString()} kcal
+                </span>
+                <ChevronRight size={18} className="text-stone-300 group-hover:text-stone-600 transition-colors" />
+              </div>
+            </div>
+
+            {/* Clean 3-Metric Summary: Burned, Intake, Net */}
+            <div className="grid grid-cols-3 gap-3 my-0.5">
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Burned</span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="text-2xl sm:text-3xl font-extrabold text-teal-600">
+                    {todayCaloriesBurned !== null ? todayCaloriesBurned.toLocaleString() : "-"}
+                  </span>
+                  {todayCaloriesBurned !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
+                </div>
+                <span className="text-[11px] text-stone-400 font-medium">Workouts</span>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Intake</span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="text-2xl sm:text-3xl font-extrabold text-orange-600">
+                    {todayCaloriesConsumed !== null ? todayCaloriesConsumed.toLocaleString() : "-"}
+                  </span>
+                  {todayCaloriesConsumed !== null && <span className="text-xs font-bold text-stone-400">kcal</span>}
+                </div>
+                <span className="text-[11px] text-stone-400 font-medium">{todayCaloriesConsumed !== null ? "Meals logged" : "No intake"}</span>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Net</span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="text-2xl sm:text-3xl font-extrabold text-stone-900">
+                    {todayCaloriesConsumed !== null || todayCaloriesBurned !== null ? (
+                      ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > 0 
+                        ? `+${((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()}` 
+                        : ((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)).toLocaleString()
+                    ) : "-"}
+                  </span>
+                  {(todayCaloriesConsumed !== null || todayCaloriesBurned !== null) && <span className="text-xs font-bold text-stone-400">kcal</span>}
+                </div>
+                <span className="text-[11px] text-stone-400 font-medium">
+                  {((todayCaloriesConsumed || 0) - (todayCaloriesBurned || 0)) > targetCalories ? 'Over target' : 'Within target'}
+                </span>
+              </div>
+            </div>
+
+            {/* Clean Progress Bar against Daily Target */}
+            <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden flex">
+              <div 
+                className="h-full bg-teal-500 rounded-full transition-all duration-500" 
+                style={{ width: `${Math.min(100, Math.round(((todayCaloriesBurned || 0) / targetCalories) * 100))}%` }}
+                title={`Burned: ${todayCaloriesBurned || 0} kcal`}
+              />
+            </div>
+
+            {/* Subtitle / Footer with Trend link */}
+            <div className="flex items-center justify-between text-xs text-stone-500 font-medium pt-0.5">
+              <span>
+                {todayCaloriesBurned ? `${todayCaloriesBurned.toLocaleString()} kcal active burn today` : 'No workout burn recorded today'}
+              </span>
+              <span className="text-tree-700 font-bold group-hover:underline flex items-center gap-0.5 text-xs">
+                View Trends <ChevronRight size={14} />
+              </span>
+            </div>
+          </div>
+
+          {/* Row 4: Left - Daily Tasks, Right - Sleep Recovery */}
+          <div className="grid grid-cols-2 gap-4">
+            <VitalCard 
+              icon={<Target size={24} className="text-purple-500" />} 
+              title="Daily Tasks" 
+              value={hasTasks ? taskCompletionPercentage : "-"} 
+              unit={hasTasks ? "%" : undefined} 
+              subtitle={taskCompletionText} 
+              onClick={() => setSelectedTrendMetric('tasks')}
+            />
+            <VitalCard 
+              icon={<Moon size={24} className="text-canopy-600" />} 
+              title="Sleep" 
+              value={todaySleep !== null ? String(todaySleep.hours) : "-"} 
+              unit={todaySleep !== null ? "hrs" : undefined} 
+              subtitle={
+                todaySleep 
+                  ? (todaySleep.efficiency ? `${todaySleep.efficiency}% efficiency` : 'Restful sleep')
+                  : 'Aim for 7-8 hrs'
+              } 
+              onClick={() => setSelectedTrendMetric('sleep')}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Unified Activity Timeline Section */}
       <section className="mt-2 flex flex-col gap-4">
